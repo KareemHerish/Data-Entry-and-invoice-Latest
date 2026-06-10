@@ -42,6 +42,19 @@ export default function App() {
   // Mobile sidebar drawer state
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
+  // Synced Excel/Google sheet links state
+  const [excelSheetLink, setExcelSheetLink] = useState(() => {
+    return localStorage.getItem("oa_excel_sheet_link") || "";
+  });
+  const [googleSheetViewLink, setGoogleSheetViewLink] = useState(() => {
+    return localStorage.getItem("oa_google_sheet_view_link") || "";
+  });
+
+  const handleSheetLinksUpdated = (link: string, viewLink: string) => {
+    setExcelSheetLink(link);
+    setGoogleSheetViewLink(viewLink);
+  };
+
   // Sync state changes to localStorage
   useEffect(() => {
     try {
@@ -83,13 +96,31 @@ export default function App() {
     setTheme(prev => (prev === "light" ? "dark" : "light"));
   };
 
-
-
   // Fetch initial records from full-stack server endpoints on mount
   useEffect(() => {
     fetchInvoices();
     fetchExcelFiles();
+    fetchExcelLink();
   }, []);
+
+  const fetchExcelLink = async () => {
+    try {
+      const res = await fetch("/api/excel-link");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.link) {
+          setExcelSheetLink(data.link);
+          localStorage.setItem("oa_excel_sheet_link", data.link);
+        }
+        if (data.viewLink) {
+          setGoogleSheetViewLink(data.viewLink);
+          localStorage.setItem("oa_google_sheet_view_link", data.viewLink);
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching excel link at App level:", err);
+    }
+  };
 
   const fetchInvoices = async () => {
     try {
@@ -311,6 +342,7 @@ export default function App() {
             <DataEntryView 
               onInvoiceCreated={handleInvoiceCreated}
               showToastMessage={showToastMessage}
+              excelSheetLink={excelSheetLink}
             />
           )}
 
@@ -330,6 +362,9 @@ export default function App() {
               showToast={showToastMessage}
               onInvoiceDeleted={handleInvoiceDeleted}
               onInvoicesBulkUpdated={handleInvoicesBulkUpdated}
+              excelSheetLink={excelSheetLink}
+              googleSheetViewLink={googleSheetViewLink}
+              onSheetLinksUpdated={handleSheetLinksUpdated}
             />
           )}
 
