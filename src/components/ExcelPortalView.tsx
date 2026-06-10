@@ -198,18 +198,18 @@ export default function ExcelPortalView({
 
     // Build perfect Arabic-compatible CSV download with UTF-8 BOM representation
     let csvContent = "\ufeff"; // BOM for Excel to render UTF-8 Arabic correctly
-    csvContent += "رقم المعاملة,تاريخ الإضافة,اسم العميل,رقم الهاتف,العنوان,ملاحظات التسليم,القطع والأصناف المطلوب شحنها,تكلفة الشحن,المجموع الكلي وعملة السداد\n";
+    csvContent += "رقم الفاتورة,التاريخ,الاسم,رقم التليفون,العنوان,المنتج,ملاحظات التسليم,تكلفة الشحن,الإجمالي الكلي\n";
 
     invoices.forEach((inv) => {
-      const itemsText = inv.items.map(it => `${it.itemName} (${it.price} EGP x ${it.quantity})`).join(" | ");
+      const itemsText = inv.items.map(it => `${it.itemName} (سعر: ${it.price} × عدد: ${it.quantity})`).join(" | ");
       const row = [
         `"${inv.id.replace(/"/g, '""')}"`,
         `"${getEgyptTimeFormatted(inv.createdAt).replace(/"/g, '""')}"`,
         `"${inv.customerName.replace(/"/g, '""')}"`,
         `"${(inv.phone || "").replace(/"/g, '""')}"`,
         `"${(inv.address || "").replace(/"/g, '""')}"`,
-        `"${(inv.notes || "").replace(/"/g, '""')}"`,
         `"${itemsText.replace(/"/g, '""')}"`,
+        `"${(inv.notes || "").replace(/"/g, '""')}"`,
         `"${inv.shippingCost ? inv.shippingCost + ' EGP' : '0 EGP'}"`,
         `"${inv.totalAmount.toFixed(2)} EGP"`
       ];
@@ -661,7 +661,7 @@ function doPost(e) {
     
     // 2. Automatically generate table headers if empty
     if (sheet.getLastRow() === 0) {
-      sheet.appendRow(["ID الفاتورة", "تاريخ الإضافة", "اسم العميل", "رقم الهاتف", "العنوان", "الأصناف المطلوبة", "ملاحظة التسليم", "الإجمالي الكلي"]);
+      sheet.appendRow(["رقم الفاتورة", "التاريخ", "الاسم", "رقم التليفون", "العنوان", "المنتج", "ملاحظات التسليم", "تكلفة الشحن", "الإجمالي الكلي"]);
     }
     
     // 3. Process and format item list
@@ -692,6 +692,7 @@ function doPost(e) {
       data.address || "",
       itemsStr,
       data.notes || "",
+      (data.shippingCost !== undefined ? data.shippingCost : 0) + " EGP",
       (data.totalAmount || 0) + " EGP"
     ];
     
@@ -762,7 +763,7 @@ function doPost(e) {
     
     // 2. Automatically generate table headers if empty
     if (sheet.getLastRow() === 0) {
-      sheet.appendRow(["ID الفاتورة", "تاريخ الإضافة", "اسم العميل", "رقم الهاتف", "العنوان", "الأصناف المطلوبة", "ملاحظة التسليم", "الإجمالي الكلي"]);
+      sheet.appendRow(["رقم الفاتورة", "التاريخ", "الاسم", "رقم التليفون", "العنوان", "المنتج", "ملاحظات التسليم", "تكلفة الشحن", "الإجمالي الكلي"]);
     }
     
     // 3. Process and format item list
@@ -793,6 +794,7 @@ function doPost(e) {
       data.address || "",
       itemsStr,
       data.notes || "",
+      (data.shippingCost !== undefined ? data.shippingCost : 0) + " EGP",
       (data.totalAmount || 0) + " EGP"
     ];
     
