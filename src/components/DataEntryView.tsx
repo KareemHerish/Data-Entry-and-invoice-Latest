@@ -21,9 +21,14 @@ import { Invoice, InvoiceItem } from "../types";
 interface DataEntryViewProps {
   onInvoiceCreated: (invoice: Invoice) => void;
   showToastMessage: (msg: string) => void;
+  excelSheetLink?: string;
 }
 
-export default function DataEntryView({ onInvoiceCreated, showToastMessage }: DataEntryViewProps) {
+export default function DataEntryView({ 
+  onInvoiceCreated, 
+  showToastMessage,
+  excelSheetLink = ""
+}: DataEntryViewProps) {
   // AI Raw prompt state
   const [inputText, setInputText] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -58,29 +63,19 @@ export default function DataEntryView({ onInvoiceCreated, showToastMessage }: Da
   const [isHeuristicFallback, setIsHeuristicFallback] = useState(false);
   const [shippingRegion, setShippingRegion] = useState<"cairo_giza" | "others">("cairo_giza");
 
-  const [isGoogleSheetsLinked, setIsGoogleSheetsLinked] = useState(false);
+  const [isGoogleSheetsLinked, setIsGoogleSheetsLinked] = useState<boolean>(() => {
+    const activeLink = excelSheetLink || localStorage.getItem("oa_excel_sheet_link") || "";
+    return !!(activeLink && activeLink.includes("script.google.com"));
+  });
   const [isGeminiActive, setIsGeminiActive] = useState<boolean | null>(null);
 
   useEffect(() => {
-    // Check local storage state first for immediate UI consistency
-    const localLink = localStorage.getItem("oa_excel_sheet_link") || "";
-    const isLocalSet = localLink && localLink.includes("script.google.com");
-    setIsGoogleSheetsLinked(!!isLocalSet);
+    // Keep isGoogleSheetsLinked reactive to prop updates
+    const activeLink = excelSheetLink || localStorage.getItem("oa_excel_sheet_link") || "";
+    setIsGoogleSheetsLinked(!!(activeLink && activeLink.includes("script.google.com")));
+  }, [excelSheetLink]);
 
-    fetch("/api/excel-link")
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.link && data.link.includes("script.google.com")) {
-          setIsGoogleSheetsLinked(true);
-        } else {
-          setIsGoogleSheetsLinked(false);
-        }
-      })
-      .catch(err => {
-        console.error("Error fetching sheet link status:", err);
-        setIsGoogleSheetsLinked(!!isLocalSet);
-      });
-
+  useEffect(() => {
     // Automatically check Gemini API configuration status at startup
     fetch("/api/debug-logs")
       .then(res => res.json())
