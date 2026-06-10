@@ -1,0 +1,6 @@
+{
+  "name": "OA Management Invoice Portal",
+  "description": "An intelligent invoice data entry and AI analysis portal with Gemini extraction, Excel excel file management, and customized print/download previews.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

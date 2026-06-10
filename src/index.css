@@ -1,0 +1,210 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&family=Hanken+Grotesk:wght@400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Hanken Grotesk", "Cairo", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Hanken Grotesk", "Cairo", sans-serif;
+  
+  /* Monochrome absolute colors matching style guide */
+  --color-primary: #000000;
+  --color-surface: #f9f9fa;
+  --color-surface-container: #eeeeef;
+  --color-outline: #7e7576;
+}
+
+/* Custom dark variant of Tailwind v4 */
+@variant dark (&:where(.dark, .dark *));
+
+/* Accessibility overrides for Dark Theme */
+.dark {
+  --color-primary: #ffffff;
+  --color-surface: #0e1011;
+  --color-surface-container: #18191d;
+  --color-outline: #383842;
+
+  /* Global background and base text styling */
+  background-color: #0a0c0d !important;
+  color: #eeeef2 !important;
+}
+
+.dark body {
+  background-color: #0a0c0d !important;
+  color: #eeeef2 !important;
+}
+
+/* Precise overrides to gracefully transition absolute light style classes to dark */
+.dark .bg-white {
+  background-color: #14161a !important;
+}
+
+.dark .bg-\[\#f9f9fa\] {
+  background-color: #0a0c0d !important;
+}
+
+.dark .bg-\[\#eeeeef\] {
+  background-color: #1c1ebd !important; /* fallback, but let's make it smooth */
+  background-color: #1e2025 !important;
+}
+
+.dark .text-black {
+  color: #ffffff !important;
+}
+
+.dark .text-\[\#1a1c1d\] {
+  color: #eeeef2 !important;
+}
+
+.dark .text-\[\#1a1b1d\] {
+  color: #eeeef2 !important;
+}
+
+.dark .text-\[\#5d5e66\] {
+  color: #a0a2ad !important;
+}
+
+.dark .border-\[\#cfc4c5\] {
+  border-color: #2e313a !important;
+}
+
+.dark .border-\[\#eeeeef\] {
+  border-color: #1e2025 !important;
+}
+
+.dark .border-black {
+  border-color: #ffffff !important;
+}
+
+/* Hover and responsive item states in dark menu */
+.dark .hover\:bg-\[\#f3f3f4\]:hover {
+  background-color: #23252e !important;
+}
+
+.dark .hover\:bg-gray-100:hover {
+  background-color: #22242c !important;
+}
+
+.dark .hover\:text-black:hover {
+  color: #ffffff !important;
+}
+
+/* Red / Danger state warning modules adjusted for eye contrast */
+.dark .bg-red-50\/75 {
+  background-color: rgba(127, 29, 29, 0.25) !important;
+  border-color: rgba(220, 38, 38, 0.5) !important;
+}
+
+.dark .bg-red-100\/60 {
+  background-color: rgba(127, 29, 29, 0.45) !important;
+}
+
+.dark .text-red-700 {
+  color: #fca5a5 !important;
+}
+
+/* Form Inputs / Fields style adaptations */
+.dark input, .dark textarea, .dark select {
+  background-color: #1a1c22 !important;
+  color: #ffffff !important;
+  border-color: #313543 !important;
+}
+
+.dark input::placeholder, .dark textarea::placeholder {
+  color: #71717a !important;
+}
+
+.dark input:focus, .dark textarea:focus, .dark select:focus {
+  border-color: #ffffff !important;
+}
+
+/* Table elements */
+.dark th {
+  background-color: #1c1ebd !important;
+  background-color: #181a20 !important;
+  color: #a0a2ad !important;
+  border-color: #2e313a !important;
+}
+
+.dark td {
+  border-color: #21232c !important;
+  color: #eeeef2 !important;
+}
+
+/* Desktop and mobile side bar navigation wrappers */
+.dark nav {
+  background-color: #111317 !important;
+  border-color: #21232c !important;
+}
+
+/* Sticky layout headers */
+.dark header {
+  background-color: rgba(17, 19, 23, 0.9) !important;
+  border-color: #21232c !important;
+}
+
+/* Action button (primary) */
+.dark .bg-black {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+.dark .bg-black * {
+  color: #000000 !important;
+}
+
+.dark .hover\:bg-\[\#2f3132\]:hover {
+  background-color: #eeeeef !important;
+}
+
+/* Gray sections and general stats boxes decoration matching dark mood */
+.dark .bg-gray-50 {
+  background-color: #181a20 !important;
+}
+
+.dark .bg-zinc-50 {
+  background-color: #14161a !important;
+}
+
+.dark .bg-\[\#f3f3f4\] {
+  background-color: #1a1c22 !important;
+}
+
+.dark .border-gray-100 {
+  border-color: #22242c !important;
+}
+
+.dark .border-zinc-100 {
+  border-color: #22242c !important;
+}
+
+/* Scrollbar styling for a completely polished layout aesthetics in dark */
+.dark ::-webkit-scrollbar-track {
+  background: #0a0c0d;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #2b2e38;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #3c404e;
+}
+
+@keyframes breathe-fade {
+  0%, 100% {
+    opacity: 0.05;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.02);
+  }
+}
+
+.animate-breathe-fade {
+  animation: breathe-fade 5s ease-in-out infinite;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
