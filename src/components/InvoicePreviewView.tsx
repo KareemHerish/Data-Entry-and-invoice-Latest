@@ -610,13 +610,13 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
             <div className="h-2 bg-[#0a58ca]" />
 
             {/* Logo and Head Title section */}
-            <div className="p-8 pb-4 flex justify-between items-start">
+            <div className="p-8 pb-4 flex justify-between items-start" dir="ltr">
               
               {/* O&A Brand Typography Header Title instead of image */}
               <div className="pt-4 px-2 select-none">
                 <h1 className="text-3xl font-black tracking-tight text-gray-900 leading-none">O&A Brand</h1>
               </div>
-
+            
               {/* Styled Invoice Header block with exact Arabic word "فاتورة" with blue banner background */}
               <div className="bg-[#0a58ca] text-white pl-20 pr-12 py-5 rounded-l-full -mr-8 mt-4 text-right flex flex-col justify-center select-none shadow-[0px_4px_10px_rgba(10,88,202,0.15)]">
                 <h2 className="text-4xl font-display font-black tracking-widest uppercase leading-none text-white">فاتورة</h2>
@@ -762,11 +762,8 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
 
             {/* Printable Footing contact block */}
             <div className="mt-8 bg-[#0a58ca] text-[#ffffff] py-4 px-8 text-center select-none">
-              <p className="text-lg md:text-xl font-bold tracking-wide flex justify-center items-center gap-2" dir="rtl">
-                <span>للتواصل:</span>
-                <span className="inline-block font-mono tracking-wider" dir="ltr">
-                  +201016296205
-                </span>
+              <p className="text-lg md:text-xl font-bold tracking-wide text-center" dir="rtl">
+                للتواصل +201016296205
               </p>
             </div>
 
@@ -1113,12 +1110,13 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
                 <div className="h-2 bg-[#0a58ca] -mx-8 -mt-8 mb-8" />
 
                 {/* Logo and Head Title section */}
-                <div className="flex justify-between items-start mb-6">
+                <div className="p-8 pb-4 flex justify-between items-start" dir="ltr">
+                  
                   {/* O&A Brand Typography Header Title instead of image */}
                   <div className="pt-4 px-2 select-none">
                     <h1 className="text-3xl font-black tracking-tight text-gray-900 leading-none">O&A Brand</h1>
                   </div>
-
+                
                   {/* Styled Invoice Header block with exact Arabic word "فاتورة" with blue banner background */}
                   <div className="bg-[#0a58ca] text-white pl-20 pr-12 py-5 rounded-l-full -mr-8 mt-4 text-right flex flex-col justify-center select-none shadow-[0px_4px_10px_rgba(10,88,202,0.15)]">
                     <h2 className="text-4xl font-display font-black tracking-widest uppercase leading-none text-white">فاتورة</h2>
@@ -1249,12 +1247,9 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
                 </div>
 
                 {/* Printable Footing contact block */}
-                <div className="mt-8 bg-[#0a58ca] text-[#ffffff] py-4 px-8 text-center select-none -mx-8 -mb-8">
-                  <p className="text-lg md:text-xl font-bold tracking-wide flex justify-center items-center gap-2" dir="rtl">
-                    <span>للتواصل:</span>
-                    <span className="inline-block font-mono tracking-wider" dir="ltr">
-                      +201016296205
-                    </span>
+                <div className="mt-8 bg-[#0a58ca] text-[#ffffff] py-4 px-8 text-center select-none">
+                  <p className="text-lg md:text-xl font-bold tracking-wide text-center" dir="rtl">
+                    للتواصل +201016296205
                   </p>
                 </div>
               </div>
