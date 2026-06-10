@@ -62,6 +62,11 @@ export default function DataEntryView({ onInvoiceCreated, showToastMessage }: Da
   const [isGeminiActive, setIsGeminiActive] = useState<boolean | null>(null);
 
   useEffect(() => {
+    // Check local storage state first for immediate UI consistency
+    const localLink = localStorage.getItem("oa_excel_sheet_link") || "";
+    const isLocalSet = localLink && localLink.includes("script.google.com");
+    setIsGoogleSheetsLinked(!!isLocalSet);
+
     fetch("/api/excel-link")
       .then(res => res.json())
       .then(data => {
@@ -71,7 +76,10 @@ export default function DataEntryView({ onInvoiceCreated, showToastMessage }: Da
           setIsGoogleSheetsLinked(false);
         }
       })
-      .catch(err => console.error("Error fetching sheet link status:", err));
+      .catch(err => {
+        console.error("Error fetching sheet link status:", err);
+        setIsGoogleSheetsLinked(!!isLocalSet);
+      });
 
     // Automatically check Gemini API configuration status at startup
     fetch("/api/debug-logs")
