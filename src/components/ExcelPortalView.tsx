@@ -58,6 +58,9 @@ interface ExcelPortalProps {
   showToast: (msg: string) => void;
   onInvoiceDeleted?: (id: string) => void;
   onInvoicesBulkUpdated?: (invoices: Invoice[]) => void;
+  excelSheetLink?: string;
+  googleSheetViewLink?: string;
+  onSheetLinksUpdated?: (link: string, viewLink: string) => void;
 }
 
 export default function ExcelPortalView({ 
@@ -67,22 +70,40 @@ export default function ExcelPortalView({
   onDeleteExcel,
   showToast,
   onInvoiceDeleted,
-  onInvoicesBulkUpdated
+  onInvoicesBulkUpdated,
+  excelSheetLink: initialExcelSheetLink = "",
+  googleSheetViewLink: initialGoogleSheetViewLink = "",
+  onSheetLinksUpdated
 }: ExcelPortalProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [excelSheetLink, setExcelSheetLink] = useState(() => {
-    return localStorage.getItem("oa_excel_sheet_link") || "";
+    return initialExcelSheetLink || localStorage.getItem("oa_excel_sheet_link") || "";
   });
   const [googleSheetViewLink, setGoogleSheetViewLink] = useState(() => {
-    return localStorage.getItem("oa_google_sheet_view_link") || "";
+    return initialGoogleSheetViewLink || localStorage.getItem("oa_google_sheet_view_link") || "";
   });
   const [localLink, setLocalLink] = useState(() => {
-    return localStorage.getItem("oa_excel_sheet_link") || "";
+    return initialExcelSheetLink || localStorage.getItem("oa_excel_sheet_link") || "";
   });
   const [localViewLink, setLocalViewLink] = useState(() => {
-    return localStorage.getItem("oa_google_sheet_view_link") || "";
+    return initialGoogleSheetViewLink || localStorage.getItem("oa_google_sheet_view_link") || "";
   });
+
+  // Keep state in sync with changes from outside if any
+  useEffect(() => {
+    if (initialExcelSheetLink) {
+      setExcelSheetLink(initialExcelSheetLink);
+      setLocalLink(initialExcelSheetLink);
+    }
+  }, [initialExcelSheetLink]);
+
+  useEffect(() => {
+    if (initialGoogleSheetViewLink) {
+      setGoogleSheetViewLink(initialGoogleSheetViewLink);
+      setLocalViewLink(initialGoogleSheetViewLink);
+    }
+  }, [initialGoogleSheetViewLink]);
   const [showSetupInstructions, setShowSetupInstructions] = useState(false);
   const [isSyncingAll, setIsSyncingAll] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -220,6 +241,9 @@ export default function ExcelPortalView({
           setLocalViewLink(data.viewLink);
           localStorage.setItem("oa_google_sheet_view_link", data.viewLink);
         }
+        if (onSheetLinksUpdated && (data.link || data.viewLink)) {
+          onSheetLinksUpdated(data.link || "", data.viewLink || "");
+        }
       })
       .catch(err => {
         console.error("Error loading sheet link:", err);
@@ -233,6 +257,9 @@ export default function ExcelPortalView({
           setGoogleSheetViewLink(vl);
           setLocalViewLink(vl);
         }
+        if (onSheetLinksUpdated && (l || vl)) {
+          onSheetLinksUpdated(l || "", vl || "");
+        }
       });
   }, []);
 
@@ -243,6 +270,9 @@ export default function ExcelPortalView({
     setLocalViewLink(newViewLink);
     localStorage.setItem("oa_excel_sheet_link", newLink);
     localStorage.setItem("oa_google_sheet_view_link", newViewLink);
+    if (onSheetLinksUpdated) {
+      onSheetLinksUpdated(newLink, newViewLink);
+    }
     try {
       await fetch("/api/excel-link", {
         method: "POST",
