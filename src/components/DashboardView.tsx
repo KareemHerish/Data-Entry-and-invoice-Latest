@@ -229,8 +229,13 @@ export default function DashboardView({
         method: "DELETE"
       });
 
-      if (onInvoiceDeleted) {
-        onInvoiceDeleted(invoiceId);
+      if (res.ok) {
+        if (onInvoiceDeleted) {
+          onInvoiceDeleted(invoiceId);
+        }
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        alert(`❌ فشل الحذف: ${errorData.error || "خطأ غير معروف في الخادم"}`);
       }
     } catch (err: any) {
       console.error("Network error deleting invoice:", err.message || err);
