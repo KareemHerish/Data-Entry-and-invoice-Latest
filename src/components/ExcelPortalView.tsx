@@ -102,12 +102,23 @@ export default function ExcelPortalView({
     setConfirmDeleteId(null);
     try {
       const activeLink = excelSheetLink || localStorage.getItem("oa_excel_sheet_link") || "";
-      await fetch(`/api/invoices/${id}?excelSheetLink=${encodeURIComponent(activeLink)}`, {
+      const res = await fetch(`/api/invoices/${id}?excelSheetLink=${encodeURIComponent(activeLink)}`, {
         method: "DELETE"
       });
-      showToast("🟢 تم حذف الفاتورة بنجاح ومزامنة الحذف مع شيت جوجل.");
-      if (onInvoiceDeleted) {
-        onInvoiceDeleted(id);
+
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data._isSyncedWithGoogle) {
+          showToast("🟢 تم حذف الفاتورة بنجاح ومزامنة الحذف مع شيت جوجل.");
+        } else {
+          showToast("🟢 تم حذف الفاتورة محلياً (وفشلت مزامنة الحذف مع شيت جوجل، يرجى تحديث كود ماكرو Apps Script).");
+        }
+        if (onInvoiceDeleted) {
+          onInvoiceDeleted(id);
+        }
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        showToast(`❌ فشل الحذف: ${errorData.error || "خطأ داخلي بالخادم"}`);
       }
     } catch (err) {
       console.error(err);
