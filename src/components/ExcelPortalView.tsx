@@ -219,8 +219,8 @@ export default function ExcelPortalView({
     invoices.forEach((inv) => {
       const itemsText = inv.items.map(it => `${it.itemName} (${it.price} EGP x ${it.quantity})`).join(" | ");
       const row = [
-        inv.id,
-        getEgyptTimeFormatted(inv.createdAt),
+        `"${inv.id.replace(/"/g, '""')}"`,
+        `"${getEgyptTimeFormatted(inv.createdAt).replace(/"/g, '""')}"`,
         `"${inv.customerName.replace(/"/g, '""')}"`,
         `"${(inv.phone || "").replace(/"/g, '""')}"`,
         `"${(inv.address || "").replace(/"/g, '""')}"`,
