@@ -43,6 +43,35 @@ function getEgyptTimeFormatted(dateOrStr?: string | Date): string {
   }
 }
 
+// Highly robust helper to push updates to Google sheets.
+// Bypasses Node's internal fetch redirect limitations by using redirect: "manual"
+// and accepting 301, 302, 200, 201 as valid execution success.
+async function fetchGoogleSheetSync(url: string, payload: any): Promise<boolean> {
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      redirect: "manual"
+    });
+    // With redirect: "manual", a successful submission returns 302 Found or 200/201.
+    if (r.status === 200 || r.status === 201 || r.status === 301 || r.status === 302 || r.ok) {
+      return true;
+    }
+    // Fallback to "follow" if redirect: "manual" received some error
+    const r2 = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      redirect: "follow"
+    });
+    return r2.ok;
+  } catch (err: any) {
+    console.error("fetchGoogleSheetSync caught failure:", err.message);
+    return false;
+  }
+}
+
 const app = express();
 const PORT = 3000;
 
@@ -670,15 +699,8 @@ app.post("/api/invoices", async (req, res) => {
       createdAt: getEgyptTimeFormatted(newInvoice.createdAt)
     };
     try {
-      const r = await fetch(activeLink, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(syncPayload),
-        redirect: "follow"
-      });
-      const resText = await r.text();
-      console.log("Google Sheets sync response status:", r.status, "Body:", resText);
-      if (r.ok) {
+      const success = await fetchGoogleSheetSync(activeLink, syncPayload);
+      if (success) {
         syncSuccess = true;
         newInvoice.isSynced = true;
       }
@@ -743,15 +765,8 @@ app.put("/api/invoices/:id", async (req, res) => {
       createdAt: getEgyptTimeFormatted(updatedInvoice.createdAt)
     };
     try {
-      const r = await fetch(activeLink, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(syncPayload),
-        redirect: "follow"
-      });
-      const resText = await r.text();
-      console.log("Google Sheets UPDATE sync response status:", r.status, "Body:", resText);
-      if (r.ok) {
+      const success = await fetchGoogleSheetSync(activeLink, syncPayload);
+      if (success) {
         syncSuccess = true;
         updatedInvoice.isSynced = true;
       }
@@ -794,15 +809,8 @@ app.delete("/api/invoices/:id", async (req, res) => {
   if (isSyncedToGoogle) {
     console.log("Triggering Google Sheets webhook DELETE for invoice ID:", id, "to URL:", activeLink);
     try {
-      const r = await fetch(activeLink, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, action: "delete", deleted: true }),
-        redirect: "follow"
-      });
-      const resText = await r.text();
-      console.log("Google Sheets DELETE sync response status:", r.status, "Body:", resText);
-      if (r.ok) {
+      const success = await fetchGoogleSheetSync(activeLink, { id, action: "delete", deleted: true });
+      if (success) {
         syncSuccess = true;
       }
     } catch (err: any) {
@@ -836,15 +844,8 @@ app.post("/api/invoices/bulk-delete", async (req, res) => {
   if (isSyncedToGoogle) {
     console.log(`Triggering Google Sheets bulk-delete Webhook for ${ids.length} records...`);
     try {
-      const r = await fetch(activeLink, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "delete", ids }),
-        redirect: "follow"
-      });
-      const resText = await r.text();
-      console.log("Google Sheets bulk-delete sync status:", r.status, "Body:", resText);
-      if (r.ok) {
+      const success = await fetchGoogleSheetSync(activeLink, { action: "delete", ids });
+      if (success) {
         syncSuccess = true;
       }
     } catch (err: any) {
@@ -887,19 +888,13 @@ app.post("/api/sync-all", async (req, res) => {
         phone: (inv.phone && String(inv.phone).startsWith("0")) ? `'${inv.phone}` : (inv.phone || ""),
         createdAt: getEgyptTimeFormatted(inv.createdAt)
       };
-      const r = await fetch(activeLink, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(syncPayload),
-        redirect: "follow"
-      });
-      const text = await r.text();
-      if (r.ok) {
+      const success = await fetchGoogleSheetSync(activeLink, syncPayload);
+      if (success) {
         successCount++;
         inv.isSynced = true;
       } else {
         failCount++;
-        lastError = `Status: ${r.status}, Body: ${text.substring(0, 100)}`;
+        lastError = `Google Sheets API connection sync issue`;
       }
     } catch (err: any) {
       failCount++;
