@@ -458,6 +458,9 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
       
       {/* Styles for print mode */}
       <style>{`
+        .invoice-compact {
+          page-break-inside: avoid;
+        }
         @media print {
           /* Force page & parent sizing reset for complete rendering without vh caps */
           html, body, #root, .min-h-screen, main, div, header, section {
@@ -1102,9 +1105,10 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
             return (
               <div 
                 key={inv.id} 
-                className={`bg-white w-full max-w-4xl mx-auto flex flex-col min-h-[1056px] relative p-8 select-none ${
+                className={`bg-white w-full max-w-4xl mx-auto flex flex-col relative p-8 select-none ${
                   index > 0 ? "print-page-break" : ""
                 }`}
+                style={{ pageBreakInside: "avoid" }}
               >
                 {/* Blue Visual Accent Top Bar */}
                 <div className="h-2 bg-[#0a58ca] -mx-8 -mt-8 mb-8" />
