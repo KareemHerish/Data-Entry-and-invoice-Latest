@@ -85,10 +85,7 @@ export default function ExcelPortalView({
   });
   const [showSetupInstructions, setShowSetupInstructions] = useState(false);
   const [isSyncingAll, setIsSyncingAll] = useState(false);
-  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
-  const [isDeletingSelected, setIsDeletingSelected] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
 
   const isSyncDisabled = invoices.length === 0 || invoices.every(inv => inv.isSynced === true);
 
@@ -109,60 +106,15 @@ export default function ExcelPortalView({
         method: "DELETE"
       });
       showToast("🟢 تم حذف الفاتورة بنجاح ومزامنة الحذف مع شيت جوجل.");
-      setSelectedInvoiceIds(prev => prev.filter(item => item !== id));
       if (onInvoiceDeleted) {
         onInvoiceDeleted(id);
       }
     } catch (err) {
       console.error(err);
-      setSelectedInvoiceIds(prev => prev.filter(item => item !== id));
       if (onInvoiceDeleted) {
         onInvoiceDeleted(id);
       }
       showToast("🟢 تم حذف الفاتورة محلياً بنجاح.");
-    }
-  };
-
-  const handleDeleteSelected = async () => {
-    if (!confirmBulkDelete) {
-      setConfirmBulkDelete(true);
-      // Auto-cancel confirmation after 4 seconds
-      setTimeout(() => {
-        setConfirmBulkDelete(false);
-      }, 4000);
-      return;
-    }
-
-    setConfirmBulkDelete(false);
-    setIsDeletingSelected(true);
-    try {
-      const activeLink = excelSheetLink || localStorage.getItem("oa_excel_sheet_link") || "";
-      const res = await fetch("/api/invoices/bulk-delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ids: selectedInvoiceIds,
-          excelSheetLink: activeLink
-        })
-      });
-      const data = await res.json();
-
-      if (res.ok) {
-        selectedInvoiceIds.forEach(id => {
-          if (onInvoiceDeleted) {
-            onInvoiceDeleted(id);
-          }
-        });
-        showToast(`🟢 تم بنجاح حذف عدد (${selectedInvoiceIds.length}) فاتورة وتحديث شيت جوجل.`);
-      } else {
-        showToast(`❌ حدث خطأ أثناء الحذف: ${data.error || "فشل المزامنة"}`);
-      }
-      setSelectedInvoiceIds([]);
-    } catch (err) {
-      console.error(err);
-      showToast("❌ حدث خطأ أثناء عملية حذف المحدد.");
-    } finally {
-      setIsDeletingSelected(false);
     }
   };
 
@@ -905,28 +857,6 @@ function doPost(e) {
                   <span>الجدول التفاعلي للفواتير المربوطة حالياً بالشيت (Synchronized Live Records)</span>
                 </h4>
                 <div className="flex items-center gap-2">
-                  {selectedInvoiceIds.length > 0 && (
-                    <button 
-                      onClick={handleDeleteSelected}
-                      disabled={isDeletingSelected}
-                      className={`${
-                        confirmBulkDelete 
-                          ? "bg-amber-600 hover:bg-amber-700 animate-pulse" 
-                          : "bg-red-600 hover:bg-red-700"
-                      } text-white px-3 py-1.5 rounded-lg text-[10px] font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50 ml-1`}
-                    >
-                      {isDeletingSelected ? (
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                      ) : (
-                        <Trash2 className="w-3.5 h-3.5" />
-                      )}
-                      <span>
-                        {confirmBulkDelete 
-                          ? `كليك للتأكيد (${selectedInvoiceIds.length})` 
-                          : `حذف المحدد (${selectedInvoiceIds.length})`}
-                      </span>
-                    </button>
-                  )}
                   {invoices.length > 0 && (
                     <button 
                       onClick={handleExportCSV}
@@ -944,7 +874,6 @@ function doPost(e) {
                   <thead className="bg-[#f4f4f5] select-none text-black font-semibold border-b border-gray-200">
                     <tr className="h-8 text-center text-[10px] font-bold text-gray-500 bg-gray-100">
                       <th className="border border-gray-200 w-8"></th>
-                      <th className="border border-gray-200 w-8"></th>
                       <th className="border border-gray-200 w-24">A</th>
                       <th className="border border-gray-200">B</th>
                       <th className="border border-gray-200 w-28">C</th>
@@ -955,20 +884,6 @@ function doPost(e) {
                     </tr>
                     <tr className="h-9">
                       <th className="border border-gray-200 w-8 text-center">Row</th>
-                      <th className="border border-gray-200 w-8 text-center select-none">
-                        <input 
-                          type="checkbox" 
-                          checked={invoices.length > 0 && selectedInvoiceIds.length === invoices.slice(0, 10).length} 
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedInvoiceIds(invoices.slice(0, 10).map(inv => inv.id));
-                            } else {
-                              setSelectedInvoiceIds([]);
-                            }
-                          }}
-                          className="rounded text-[#0a58ca] focus:ring-[#0a58ca] w-3.5 h-3.5 cursor-pointer inline-block align-middle accent-[#0a58ca]"
-                        />
-                      </th>
                       <th className="border border-gray-200 px-2 text-center">ID المعاملة</th>
                       <th className="border border-gray-200 px-3">اسم العميل (Customer Name)</th>
                       <th className="border border-gray-200 px-2 text-center">رقم الهاتف</th>
@@ -981,30 +896,15 @@ function doPost(e) {
                   <tbody className="divide-y divide-gray-100 bg-white font-mono text-[10px]">
                     {invoices.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="p-8 text-center text-gray-400 font-sans">
+                        <td colSpan={8} className="p-8 text-center text-gray-400 font-sans">
                           لا توجد فواتير مسجلة لعرضها في الشيت حالياً. اكتب فاتورة في صفحة الإدخال أولاً!
                         </td>
                       </tr>
                     ) : (
                       invoices.slice(0, 10).map((inv, index) => {
-                        const isSelected = selectedInvoiceIds.includes(inv.id);
                         return (
-                          <tr key={inv.id} className={`hover:bg-blue-50/20 transition h-9 ${isSelected ? "bg-red-50/30 hover:bg-red-50/40" : ""}`}>
+                          <tr key={inv.id} className="hover:bg-blue-50/20 transition h-9">
                             <td className="border border-gray-200 bg-[#f4f4f5] text-gray-400 text-center select-none font-bold">{index + 1}</td>
-                            <td className="border border-gray-200 text-center bg-white">
-                              <input 
-                                type="checkbox" 
-                                checked={isSelected}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedInvoiceIds(prev => [...prev, inv.id]);
-                                  } else {
-                                    setSelectedInvoiceIds(prev => prev.filter(id => id !== inv.id));
-                                  }
-                                }}
-                                className="rounded text-[#0a58ca] focus:ring-[#0a58ca] w-3.5 h-3.5 cursor-pointer inline-block align-middle accent-[#0a58ca]"
-                              />
-                            </td>
                             <td className="border border-gray-200 text-center text-blue-800 font-bold bg-[#fcfcfd]" dir="ltr">#{inv.id.substring(0, 7)}</td>
                             <td className="border border-gray-200 px-3 font-sans font-bold text-black">{inv.customerName}</td>
                             <td className="border border-gray-200 text-center text-gray-600 font-bold" dir="ltr">{inv.phone || "-"}</td>
