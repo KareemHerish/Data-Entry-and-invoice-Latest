@@ -27,12 +27,13 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
   const [isExportingImage, setIsExportingImage] = useState(false);
   const [exportedImageSrc, setExportedImageSrc] = useState<string | null>(null);
 
-  // States for bulk Word DOCX export
+  // States for bulk PDF print/export
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [bulkType, setBulkType] = useState<"all" | "limit" | "manual">("all");
   const [manualSelectedIds, setManualSelectedIds] = useState<string[]>([]);
   const [bulkLimit, setBulkLimit] = useState<number>(10);
   const [searchQuery, setSearchQuery] = useState("");
+  const [bulkPrintInvoices, setBulkPrintInvoices] = useState<Invoice[] | null>(null);
 
   // If no invoices yet, show graceful placeholder
   const activeInvoice = invoices[selectedInvoiceIndex];
@@ -217,240 +218,8 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
     }
   };
 
-  const handleDownloadWord = () => {
-    if (!activeInvoice) return;
-    try {
-      const clientName = activeInvoice.customerName.replace(/[\s\/\\\?\*:"<>|]/g, "_");
-      const fileName = `فاتورة_${clientName}_${activeInvoice.id}.docx`;
-      const itemsSubtotal = activeInvoice.items.reduce((acc, curr) => acc + curr.total, 0);
-      const shippingFee = activeInvoice.shippingCost || 0;
-      
-      // Complete MS Word XML-compatible HTML block with proper styling
-      const wordHtml = `
-        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
-        <head>
-          <title>Invoice</title>
-          <!--[if gte mso 9]>
-          <xml>
-            <w:WordDocument>
-              <w:View>Print</w:View>
-              <w:Zoom>100</w:Zoom>
-              <w:DoNotOptimizeForBrowser/>
-            </w:WordDocument>
-          </xml>
-          <![endif]-->
-          <meta charset="utf-8">
-          <style>
-            @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap');
-            body { 
-              font-family: 'Tajawal', 'Arial', sans-serif; 
-              direction: rtl; 
-              text-align: right; 
-              background-color: #ffffff; 
-              color: #111111; 
-              margin: 20px;
-            }
-            .header-table {
-              width: 100%;
-              border-collapse: collapse;
-              margin-bottom: 30px;
-            }
-            .brand-name {
-              font-size: 26px;
-              font-weight: bold;
-              color: #111111;
-              direction: ltr !important;
-              unicode-bidi: embed;
-              text-align: left;
-            }
-            .brand-sub {
-              font-size: 10px;
-              color: #555555;
-              text-transform: uppercase;
-              letter-spacing: 2px;
-              direction: ltr !important;
-              unicode-bidi: embed;
-              text-align: left;
-            }
-            .invoice-label-container {
-              background-color: #0a58ca;
-              color: #ffffff;
-              padding: 15px 30px;
-              text-align: center;
-              border-radius: 4px;
-            }
-            .invoice-label {
-              font-size: 28px;
-              font-weight: bold;
-              margin: 0;
-            }
-            .invoice-sub {
-              font-size: 10px;
-              letter-spacing: 1px;
-            }
-            .customer-details {
-              background-color: #f8f9fa;
-              border: 1px solid #e9ecef;
-              padding: 15px;
-              border-radius: 8px;
-              margin-bottom: 25px;
-            }
-            .detail-row {
-              margin-bottom: 8px;
-              font-size: 13px;
-            }
-            .detail-label {
-              font-weight: bold;
-              color: #0a58ca;
-              display: inline-block;
-              width: 100px;
-            }
-            .table-items {
-              width: 100%;
-              border-collapse: collapse;
-              margin-bottom: 30px;
-              border: 1px solid #0a58ca;
-            }
-            .table-items th {
-              background-color: #0a58ca;
-              color: #ffffff;
-              font-weight: bold;
-              font-size: 12px;
-              padding: 10px;
-              border: 1px solid #0a58ca;
-              text-align: center;
-            }
-            .table-items td {
-              padding: 10px;
-              border: 1px solid #e9ecef;
-              font-size: 12px;
-              text-align: center;
-            }
-            .table-items .item-name {
-              text-align: right;
-            }
-            .total-row {
-              background-color: #f8f9fa;
-              font-weight: bold;
-            }
-            .total-amount {
-              color: #0a58ca;
-              font-size: 15px;
-            }
-            .footer-strip {
-              background-color: #0a58ca;
-              color: #ffffff;
-              padding: 12px;
-              text-align: center;
-              font-weight: bold;
-              font-size: 15px;
-              margin-top: 40px;
-              border-radius: 4px;
-            }
-          </style>
-        </head>
-        <body>
-          <table class="header-table" dir="ltr" style="width: 100%; direction: ltr; border-collapse: collapse; margin-bottom: 30px;">
-            <tr>
-              <!-- Brand name and sub info on the left, written in LTR -->
-              <td style="text-align: left; vertical-align: middle; width: 50%; direction: ltr !important; unicode-bidi: embed;">
-                <div class="brand-name" dir="ltr" style="font-family: Arial, sans-serif; font-size: 26px; font-weight: bold; color: #111111; direction: ltr !important; unicode-bidi: embed; text-align: left; display: block;">O&A Brand</div>
-              </td>
-              <!-- Invoice label container on the right, aligned right -->
-              <td style="text-align: right; vertical-align: middle; width: 50%; padding-left: 20px;">
-                <table align="right" border="0" cellpadding="0" cellspacing="0" style="background-color: #0a58ca; border-radius: 4px; border-collapse: collapse; width: 180px;">
-                  <tr>
-                    <td style="background-color: #0a58ca; color: #ffffff; padding: 12px 20px; text-align: center; border-radius: 4px; border: none;">
-                      <div class="invoice-label" style="font-size: 24px; font-weight: bold; margin: 0; color: #ffffff; font-family: 'Tajawal', 'Arial', sans-serif;">فاتورة</div>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-          </table>
-
-          <div class="customer-details">
-            <div class="detail-row">
-              <span class="detail-label">اسم العميل:</span>
-              <span>${activeInvoice.customerName}</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">العنوان:</span>
-              <span>${activeInvoice.address || "-"}</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">رقم الهاتف:</span>
-              <span dir="ltr">${activeInvoice.phone || "-"}</span>
-            </div>
-          </div>
-
-          <table class="table-items">
-            <thead>
-              <tr>
-                <th style="width: 8%">NO</th>
-                <th style="text-align: right;">اسم الصنف</th>
-                <th style="width: 20%">سعر القطعة</th>
-                <th style="width: 15%">العدد</th>
-                <th style="width: 20%">المجموع</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${activeInvoice.items.map((item, idx) => `
-                <tr>
-                  <td>${idx + 1}</td>
-                  <td class="item-name">${item.itemName}</td>
-                  <td>${item.price.toFixed(2)} EGP</td>
-                  <td>${item.quantity}</td>
-                  <td style="font-weight: bold; color: #0a58ca;">${item.total.toFixed(2)} EGP</td>
-                </tr>
-              `).join('')}
-              <tr class="total-row">
-                <td>#</td>
-                <td style="text-align: right; font-weight: bold;">مجموع الأصناف</td>
-                <td></td>
-                <td style="text-align: center; font-weight: bold;">${activeInvoice.items.reduce((acc, curr) => acc + Number(curr.quantity), 0)}</td>
-                <td style="font-weight: bold; color: #0a58ca;">${itemsSubtotal.toFixed(2)} EGP</td>
-              </tr>
-              ${shippingFee > 0 ? `
-              <tr class="total-row">
-                <td>#</td>
-                <td style="text-align: right; font-weight: bold;">قيمة التوصيل</td>
-                <td></td>
-                <td style="text-align: center;">-</td>
-                <td style="font-weight: bold; color: #0a58ca;">${shippingFee.toFixed(2)} EGP</td>
-              </tr>
-              ` : ""}
-              <tr class="total-row" style="background-color: #0a58ca; color: #ffffff;">
-                <td>#</td>
-                <td style="text-align: right; font-weight: bold; color: #ffffff;">الاجمالي المطلوب دفعه</td>
-                <td></td>
-                <td style="text-align: center; color: #ffffff;"></td>
-                <td class="total-amount" style="font-weight: 900; color: #ffffff; font-size: 16px;">${activeInvoice.totalAmount.toFixed(2)} EGP</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <div class="footer-strip">
-            للتواصل والمبيعات: +201016296205
-          </div>
-        </body>
-        </html>
-      `;
-
-      // Convert word HTML content to printable DOCX blob
-      const blob = new Blob(["\ufeff" + wordHtml], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      console.error("Failed to generate Word document blob:", e);
-      alert("عذراً، حدث خطأ أثناء تحميل ملف الوورد.");
-    }
+  const printInvoice = () => {
+    window.print();
   };
 
   const openBulkModal = () => {
@@ -459,7 +228,40 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
     setShowBulkModal(true);
   };
 
-  const handleDownloadBulkWorddocx = () => {
+  const handlePrintBulkPDF = () => {
+    let selectedInvoicesList: Invoice[] = [];
+    if (bulkType === "all") {
+      selectedInvoicesList = [...invoices];
+    } else if (bulkType === "limit") {
+      selectedInvoicesList = invoices.slice(0, Math.min(bulkLimit, invoices.length));
+    } else if (bulkType === "manual") {
+      selectedInvoicesList = invoices.filter(inv => manualSelectedIds.includes(inv.id));
+    }
+
+    if (selectedInvoicesList.length === 0) {
+      alert("الرجاء تحديد فاتورة واحدة على الأقل للطباعة كـ PDF.");
+      return;
+    }
+
+    setBulkPrintInvoices(selectedInvoicesList);
+    setShowBulkModal(false);
+
+    // FIX: زيادة الـ timeout + استخدام requestAnimationFrame مرتين
+    // عشان React يـ re-render الـ DOM الجديد قبل ما window.print() يتنفذ
+    setTimeout(() => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          window.print();
+          // Restore view structure safely after print dialog closes
+          setTimeout(() => {
+            setBulkPrintInvoices(null);
+          }, 500);
+        });
+      });
+    }, 400);
+  };
+
+  const handleDownloadBulkWorddocx_UNUSED = () => {
     let selectedInvoicesList: Invoice[] = [];
     if (bulkType === "all") {
       selectedInvoicesList = [...invoices];
@@ -597,87 +399,20 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
               color: #111111; 
               margin: 20px;
             }
-            .header-table {
-              width: 100%;
-              border-collapse: collapse;
-              margin-bottom: 25px;
-            }
-            .brand-name {
-              font-size: 26px;
-              font-weight: bold;
-              color: #111111;
-              direction: ltr !important;
-              text-align: left;
-            }
-            .invoice-label {
-              font-size: 20px;
-              font-weight: bold;
-              color: #ffffff;
-            }
-            .customer-details {
-              background-color: #f8f9fa;
-              border: 1px solid #e9ecef;
-              padding: 15px;
-              border-radius: 8px;
-              margin-bottom: 25px;
-            }
-            .detail-row {
-              margin-bottom: 8px;
-              font-size: 13px;
-            }
-            .detail-label {
-              font-weight: bold;
-              color: #0a58ca;
-              display: inline-block;
-              width: 100px;
-            }
-            .table-items {
-              width: 100%;
-              border-collapse: collapse;
-              margin-bottom: 25px;
-              border: 1px solid #0a58ca;
-            }
-            .table-items th {
-              background-color: #0a58ca;
-              color: #ffffff;
-              font-weight: bold;
-              font-size: 12px;
-              padding: 8px;
-              border: 1px solid #0a58ca;
-              text-align: center;
-            }
-            .table-items td {
-              padding: 8px;
-              border: 1px solid #e9ecef;
-              font-size: 12px;
-              text-align: center;
-            }
-            .table-items .item-name {
-              text-align: right;
-            }
-            .total-row {
-              background-color: #f8f9fa;
-              font-weight: bold;
-            }
-            .total-amount {
-              color: #0a58ca;
-              font-size: 15px;
-            }
-            .footer-strip {
-              background-color: #0a58ca;
-              color: #ffffff;
-              padding: 12px;
-              text-align: center;
-              font-weight: bold;
-              font-size: 14px;
-              margin-top: 30px;
-              border-radius: 4px;
-            }
-            .page-break {
-              page-break-before: always;
-              mso-break-type: section-break;
-              clear: all;
-            }
+            .header-table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
+            .brand-name { font-size: 26px; font-weight: bold; color: #111111; direction: ltr !important; text-align: left; }
+            .invoice-label { font-size: 20px; font-weight: bold; color: #ffffff; }
+            .customer-details { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px; border-radius: 8px; margin-bottom: 25px; }
+            .detail-row { margin-bottom: 8px; font-size: 13px; }
+            .detail-label { font-weight: bold; color: #0a58ca; display: inline-block; width: 100px; }
+            .table-items { width: 100%; border-collapse: collapse; margin-bottom: 25px; border: 1px solid #0a58ca; }
+            .table-items th { background-color: #0a58ca; color: #ffffff; font-weight: bold; font-size: 12px; padding: 8px; border: 1px solid #0a58ca; text-align: center; }
+            .table-items td { padding: 8px; border: 1px solid #e9ecef; font-size: 12px; text-align: center; }
+            .table-items .item-name { text-align: right; }
+            .total-row { background-color: #f8f9fa; font-weight: bold; }
+            .total-amount { color: #0a58ca; font-size: 15px; }
+            .footer-strip { background-color: #0a58ca; color: #ffffff; padding: 12px; text-align: center; font-weight: bold; font-size: 14px; margin-top: 30px; border-radius: 4px; }
+            .page-break { page-break-before: always; mso-break-type: section-break; clear: all; }
           </style>
         </head>
         <body>
@@ -701,10 +436,6 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
       console.error("Failed to generate bulk Word document:", e);
       alert("عذراً، حدث خطأ أثناء تحميل الملف.");
     }
-  };
-
-  const printInvoice = () => {
-    window.print();
   };
 
   // Helper row filling to match exactly 8 visual rows from the original design
@@ -741,11 +472,12 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
             display: none !important;
           }
           
-          /* Ensure printable area takes perfect A4 layout specifications */
+          /* FIX: استبدال position:absolute بـ position:relative
+             عشان الفاتورة تتطبع صح من غير ما تطير خارج الصفحة */
           .print-area {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
+            position: relative !important;
+            left: auto !important;
+            top: auto !important;
             width: 100% !important;
             max-width: 100% !important;
             border: none !important;
@@ -756,12 +488,41 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
             color: black !important;
             display: block !important;
           }
+
+          /* FIX: إخفاء فاتورة الـ single لما يكون bulk printing شغال
+             بدل Tailwind print:hidden اللي مش بيشتغل دايماً */
+          .hide-on-bulk-print {
+            display: none !important;
+          }
+
+          /* FIX: إظهار الـ bulk container وقت الطباعة
+             بدل Tailwind print:block اللي مش بيشتغل دايماً */
+          .bulk-print-container {
+            display: block !important;
+          }
+
+          /* Force page break during bulk printing */
+          .print-page-break {
+            page-break-before: always !important;
+            break-before: page !important;
+            display: block !important;
+            height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+          }
           
           /* Color preservation adjustments */
           * {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
+        }
+
+        /* FIX: إخفاء الـ bulk container في الـ screen العادي
+           بدل Tailwind hidden اللي ممكن يتعارض */
+        .bulk-print-container {
+          display: none;
         }
       `}</style>
 
@@ -807,18 +568,18 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
         {activeInvoice && (
           <div className="flex flex-wrap gap-2.5">
             <button 
-              onClick={handleDownloadWord}
+              onClick={printInvoice}
               className="bg-white hover:bg-[#f3f3f4] text-black border border-[#cfc4c5] px-4 py-2 rounded-lg font-semibold text-xs tracking-wide transition flex items-center gap-1.5 cursor-pointer shadow-[0px_2px_4px_rgba(0,0,0,0.02)]"
             >
-              <FileCheck className="w-3.5 h-3.5 text-[#5d5e66]" />
-              <span>تحميل الفاتورة الحالية (DOCX)</span>
+              <Printer className="w-3.5 h-3.5 text-[#5d5e66]" />
+              <span>طباعة وتحميل الفاتورة الحالية (PDF)</span>
             </button>
             <button 
               onClick={openBulkModal}
               className="bg-[#0a58ca]/5 hover:bg-[#0a58ca]/10 text-[#0a58ca] border border-[#0a58ca]/30 px-4 py-2 rounded-lg font-semibold text-xs tracking-wide transition flex items-center gap-1.5 cursor-pointer shadow-[0px_2px_4px_rgba(10,88,202,0.01)]"
             >
               <FileText className="w-3.5 h-3.5" />
-              <span>تحميل فواتير متعددة في ملف واحد (DOCX)</span>
+              <span>طباعة وتحميل فواتير متعددة في ملف واحد (PDF)</span>
             </button>
           </div>
         )}
@@ -842,7 +603,8 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
         <div className="w-full flex justify-center py-4">
           
           {/* Printable Invoice paper canvas */}
-          <div ref={printAreaRef} className="print-area bg-white w-full max-w-4xl shadow-[0px_10px_40px_rgba(31,31,31,0.06)] border border-[#eeeeef] rounded-md overflow-hidden flex flex-col min-h-[1056px] relative select-none">
+          {/* FIX: استبدال print:hidden بـ hide-on-bulk-print CSS class */}
+          <div ref={printAreaRef} className={`print-area bg-white w-full max-w-4xl shadow-[0px_10px_40px_rgba(31,31,31,0.06)] border border-[#eeeeef] rounded-md overflow-hidden flex flex-col min-h-[1056px] relative select-none ${bulkPrintInvoices ? "hide-on-bulk-print" : ""}`}>
             
             {/* Blue and Grey Visual Accent Top Bar */}
             <div className="h-2 bg-[#0a58ca]" />
@@ -1067,7 +829,7 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
         </div>
       )}
 
-      {/* Bulk DOCX Export Modal */}
+      {/* Bulk PDF Export Modal */}
       {showBulkModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[9999] flex items-center justify-center p-4 overflow-y-auto no-print" dir="rtl">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl flex flex-col gap-5 animate-scale-up" onClick={(e) => e.stopPropagation()}>
@@ -1078,8 +840,8 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
                   <FileText className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-black font-sans">تصدير فواتير متعددة إلى ملف Word واحد</h3>
-                  <p className="text-xs text-gray-500 font-sans">قم بتحميل فواتيرك بصيغة .docx متوافقة مع جميع برامج وورد </p>
+                  <h3 className="text-base font-bold text-black font-sans">طباعة وتصدير فواتير متعددة كـ PDF</h3>
+                  <p className="text-xs text-gray-500 font-sans">توليد ملف PDF مدمج يحتوي على الفواتير المحددة (كل فاتورة بصفحة منفصلة)</p>
                 </div>
               </div>
               <button 
@@ -1300,7 +1062,7 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
                 <strong className="text-[#0a58ca] text-sm font-sans">
                   {bulkType === "all" ? invoices.length : bulkType === "limit" ? bulkLimit : manualSelectedIds.length}
                 </strong> {" "}
-                فواتير داخل مستند وورد واحد بصيغة <strong>DOCX (.docx)</strong> حديثة ومحمية، حيث تفرز كل فاتورة في صفحة مستقلة بنظام تلقائي لحفظ مظهر الشركة الأنيق.
+                فواتير داخل ملف <strong>PDF</strong> مدمج ومنسق، حيث تفرز كل فاتورة في صفحة مستقلة بنظام تلقائي لحفظ مظهر الشركة الأنيق ودعم الطباعة المباشرة.
               </span>
             </div>
 
@@ -1313,15 +1075,191 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
                 إلغاء وتراجع
               </button>
               <button
-                onClick={handleDownloadBulkWorddocx}
+                onClick={handlePrintBulkPDF}
                 className="px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-[#0a58ca] hover:bg-[#084298] transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-blue-600/15"
               >
                 <FileText className="w-4 h-4" />
-                <span>تحميل مستند Word (.docx) الآن</span>
+                <span>تصدير وطباعة PDF الآن</span>
               </button>
             </div>
 
           </div>
+        </div>
+      )}
+
+      {/* FIX: استبدال hidden print:block بـ bulk-print-container CSS class
+          عشان نضمن إن الـ bulk invoices بتظهر صح وقت الطباعة */}
+      {bulkPrintInvoices && (
+        <div className="bulk-print-container w-full">
+          {bulkPrintInvoices.map((inv, index) => {
+            const itemsSubtotal = inv.items.reduce((acc, curr) => acc + curr.total, 0);
+            const shippingFee = inv.shippingCost || 0;
+            
+            // Helper row filling to match exactly 8 visual rows from the original design
+            const paddedRows = [...inv.items];
+            const paddingCount = 8 - paddedRows.length;
+            for (let i = 0; i < paddingCount; i++) {
+              paddedRows.push({ itemName: "", price: 0, quantity: 0, total: 0 });
+            }
+
+            return (
+              <div 
+                key={inv.id} 
+                className={`bg-white w-full max-w-4xl mx-auto flex flex-col min-h-[1056px] relative p-8 select-none ${
+                  index > 0 ? "print-page-break" : ""
+                }`}
+              >
+                {/* Blue Visual Accent Top Bar */}
+                <div className="h-2 bg-[#0a58ca] -mx-8 -mt-8 mb-8" />
+
+                {/* Logo and Head Title section */}
+                <div className="flex justify-between items-start mb-6">
+                  {/* O&A Brand Typography Header Title instead of image */}
+                  <div className="pt-4 px-2 select-none">
+                    <h1 className="text-3xl font-black tracking-tight text-gray-900 leading-none">O&A Brand</h1>
+                  </div>
+
+                  {/* Styled Invoice Header block with exact Arabic word "فاتورة" with blue banner background */}
+                  <div className="bg-[#0a58ca] text-white pl-20 pr-12 py-5 rounded-l-full -mr-8 mt-4 text-right flex flex-col justify-center select-none shadow-[0px_4px_10px_rgba(10,88,202,0.15)]">
+                    <h2 className="text-4xl font-display font-black tracking-widest uppercase leading-none text-white">فاتورة</h2>
+                  </div>
+                </div>
+
+                {/* Divider */}
+                <div className="my-1">
+                  <div className="h-[1px] bg-gray-200" />
+                </div>
+
+                {/* Customer coordinates */}
+                <div className="py-5 flex justify-start" dir="rtl">
+                  <div className="w-full max-w-md space-y-3 font-sans bg-gray-50/50 p-4 rounded-lg border border-gray-100">
+                    <div className="flex items-center border-b border-gray-200 pb-2">
+                      <span className="text-xs font-bold text-[#0a58ca] w-28 shrink-0 text-right">رقم الفاتورة:</span>
+                      <span className="text-xs text-black font-bold flex-1 text-right font-mono">
+                        {inv.id}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center border-b border-gray-200 pb-2">
+                      <span className="text-xs font-bold text-[#0a58ca] w-28 shrink-0 text-right">الاسم:</span>
+                      <span className="text-xs text-black font-bold flex-1 text-right">
+                        {inv.customerName}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center border-b border-gray-200 pb-2">
+                      <span className="text-xs font-bold text-[#0a58ca] w-28 shrink-0 text-right">العنوان:</span>
+                      <span className="text-xs text-black flex-1 text-right">
+                        {inv.address || "-"}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center border-b border-gray-200 pb-2">
+                      <span className="text-xs font-bold text-[#0a58ca] w-28 shrink-0 text-right">رقم التليفون:</span>
+                      <span className="text-xs text-black font-semibold flex-1 text-right font-mono" dir="ltr">
+                        {inv.phone || "-"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Line Items Table */}
+                <div className="py-4 flex-1">
+                  <table className="w-full border border-[#0a58ca]/40 text-right font-sans" dir="rtl">
+                    <thead>
+                      <tr className="bg-[#0a58ca] text-white text-xs select-none">
+                        <th className="border-l border-[#0a58ca]/50 py-3 px-4 font-bold w-12 text-center">NO</th>
+                        <th className="border-l border-[#0a58ca]/50 py-3 px-4 font-bold">اسم الصنف</th>
+                        <th className="border-l border-[#0a58ca]/50 py-3 px-4 font-bold w-32 text-center">سعر القطعة</th>
+                        <th className="border-l border-[#0a58ca]/50 py-3 px-4 font-bold w-24 text-center">العدد</th>
+                        <th className="py-3 px-4 font-bold w-32 text-center">المجموع</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-xs text-[#1a1c1d]">
+                      {paddedRows.map((row, idx) => {
+                        const isFiller = row.itemName === "";
+                        return (
+                          <tr 
+                            key={idx}
+                            className={`h-11 border-b border-gray-200 ${
+                              isFiller ? "bg-white" : "hover:bg-gray-50/50"
+                            }`}
+                          >
+                            <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono">
+                              {idx + 1}
+                            </td>
+                            <td className="border-l border-gray-200 px-4 font-medium max-w-[280px] truncate text-[#1a1c1d]">
+                              {row.itemName}
+                            </td>
+                            <td className="border-l border-gray-200 px-4 text-center font-semibold font-mono text-gray-600">
+                              {!isFiller ? row.price.toFixed(2) : ""}
+                            </td>
+                            <td className="border-l border-gray-200 px-4 text-center font-bold font-mono">
+                              {!isFiller && row.quantity > 0 ? row.quantity : ""}
+                            </td>
+                            <td className="px-4 text-center font-bold font-mono text-[#0a58ca]">
+                              {!isFiller ? row.total.toFixed(2) : ""}
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                      {/* Summary Row */}
+                      <tr className="h-11 bg-gray-50/70 border-t border-gray-200 select-none">
+                        <td className="border-l border-gray-200 text-center font-bold text-gray-400">#</td>
+                        <td className="border-l border-gray-200 px-4 font-bold text-gray-700 text-right">
+                          مجموع الأصناف
+                        </td>
+                        <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono" />
+                        <td className="border-l border-gray-200 text-center font-black font-mono text-black">
+                          {inv.items.reduce((a,c) => a+Number(c.quantity), 0)}
+                        </td>
+                        <td className="px-4 text-center font-bold font-mono text-[#0a58ca]">
+                          {itemsSubtotal.toFixed(2)}
+                        </td>
+                      </tr>
+
+                      {shippingFee > 0 && (
+                        <tr className="h-11 bg-gray-50/70 border-t border-gray-200 select-none">
+                          <td className="border-l border-gray-200 text-center font-bold text-gray-400">#</td>
+                          <td className="border-l border-gray-200 px-4 font-bold text-gray-700 text-right">
+                            قيمة التوصيل
+                          </td>
+                          <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono" />
+                          <td className="border-l border-gray-200 text-center font-medium font-mono text-gray-400">-</td>
+                          <td className="px-4 text-center font-bold font-mono text-[#0a58ca]">
+                            {shippingFee.toFixed(2)}
+                          </td>
+                        </tr>
+                      )}
+
+                      <tr className="h-12 bg-gray-100 border-t-2 border-[#0a58ca]/40 select-none text-black">
+                        <td className="border-l border-gray-200 text-center font-black text-gray-600">#</td>
+                        <td className="border-l border-gray-200 px-4 font-black text-[#0a58ca] text-right">
+                          الاجمالي المطلوب دفعه
+                        </td>
+                        <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono" />
+                        <td className="border-l border-gray-200 text-center font-black font-mono text-black" />
+                        <td className="px-4 text-center font-black font-mono text-lg text-[#0a58ca]">
+                          {inv.totalAmount.toFixed(2)} EGP
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Printable Footing contact block */}
+                <div className="mt-8 bg-[#0a58ca] text-[#ffffff] py-4 px-8 text-center select-none -mx-8 -mb-8">
+                  <p className="text-lg md:text-xl font-bold tracking-wide flex justify-center items-center gap-2" dir="rtl">
+                    <span>للتواصل:</span>
+                    <span className="inline-block font-mono tracking-wider" dir="ltr">
+                      +201016296205
+                    </span>
+                  </p>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
