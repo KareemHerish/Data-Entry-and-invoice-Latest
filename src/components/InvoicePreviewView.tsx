@@ -1192,7 +1192,7 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
             return (
               <div 
                 key={`bulk-invoice-${inv.id}-${index}`} 
-                className="bg-white w-full flex flex-col relative p-8 select-none invoice-print-card"
+                className="bg-white w-full max-w-4xl mx-auto flex flex-col relative p-8 select-none invoice-print-card"
               >
                 {/* Blue Visual Accent Top Bar */}
                 <div className="h-1.5 bg-[#0a58ca] -mx-8 -mt-8 mb-4" />
