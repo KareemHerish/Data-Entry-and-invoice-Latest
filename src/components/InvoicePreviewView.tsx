@@ -617,6 +617,12 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
             margin-bottom: 0cm !important;
             padding-bottom: 0cm !important;
           }
+          
+          .bulk-print-container .invoice-print-card {
+            max-width: 800px !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
+          }
           /* FIX: إخفاء فاتورة الـ single لما يكون bulk printing شغال
              بدل Tailwind print:hidden اللي مش بيشتغل دايماً */
           .hide-on-bulk-print {
