@@ -614,8 +614,8 @@ export default function ExcelPortalView({
         </p>
       </div>
 
-      {/* Side-by-Side configuration layout (Bento Grid) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8" dir="rtl">
+      {/* Live Google Sheets Integration Configuration Panel */}
+      <div className="max-w-3xl mx-auto mb-8" dir="rtl">
         
         {/* Cell 1: Live Excel Sheet URL integration */}
         <div className="bg-white border border-[#cfc4c5] p-5 rounded-xl shadow-sm text-right flex flex-col justify-between h-full hover:border-black transition" dir="rtl">
@@ -730,54 +730,6 @@ export default function ExcelPortalView({
             ) : (
               <span className="text-[9px] text-gray-400 block text-center w-full">يرجى كتابة لينكات صالحة للربط المباشر والبدء بالمزامنة.</span>
             )}
-          </div>
-        </div>
-        
-        {/* Cell 2: Drag Drop file uploader area */}
-        <div className="bg-white border border-[#cfc4c5] p-5 rounded-xl shadow-sm text-right flex flex-col justify-between h-full hover:border-black transition">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between border-b border-[#eeeeef] pb-2">
-              <h4 className="text-xs font-bold text-black flex items-center gap-2">
-                <UploadCloud className="w-4.5 h-4.5 text-black" />
-                <span>رفع كشف مبيعات منفصل (Independent Uplink)</span>
-              </h4>
-              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold bg-[#eeeeef] text-[#5d5e66] border border-[#cfc4c5]">
-                <span>يدوي</span>
-              </span>
-            </div>
-
-            <p className="text-[11px] text-[#5d5e66] leading-relaxed">
-              إذا كنت تفضل رفع ملفات إكسيل عادية من جهازك (.xlsx). اسحب وأفلت الملف بداخل الصندوق التالي ليقوم النظام بالمعالجة.
-            </p>
-
-            <div 
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className={`border border-dashed rounded-lg bg-[#f9f9fa] p-3 flex flex-col items-center justify-center text-center transition cursor-pointer ${
-                isDragOver ? "border-black bg-gray-50/70" : "border-[#cfc4c5] hover:border-gray-200"
-              }`}
-            >
-              <input 
-                type="file" 
-                ref={fileInputRef}
-                onChange={handleFileInputChange}
-                accept=".xlsx, .xls"
-                className="hidden"
-              />
-              {isUploading ? (
-                <Loader2 className="w-5 h-5 text-black animate-spin mb-1" />
-              ) : (
-                <UploadCloud className="w-5 h-5 text-gray-400 mb-1" />
-              )}
-              <span className="text-[10px] font-bold text-black">اسحب كشف مبيعات هنا أو تصفح</span>
-              <span className="text-[8px] text-gray-400 mt-0.5">صيغ .xlsx بحد أقصى 50MB</span>
-            </div>
-          </div>
-
-          <div className="mt-4 pt-3 border-t border-[#eeeeef] text-center">
-            <span className="text-[9px] text-[#5d5e66]">موازنة أوتوماتيكية تعتمد على Gemini 3.5</span>
           </div>
         </div>
 
