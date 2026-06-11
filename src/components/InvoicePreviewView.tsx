@@ -723,7 +723,7 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
           
           {/* Printable Invoice paper canvas */}
           {/* FIX: استبدال print:hidden بـ hide-on-bulk-print CSS class */}
-          <div ref={printAreaRef} className={`print-area bg-white w-full max-w-4xl shadow-[0px_10px_40px_rgba(31,31,31,0.06)] border border-[#eeeeef] rounded-md overflow-hidden flex flex-col min-h-0 relative select-none invoice-print-card ${bulkPrintInvoices ? "print:hidden" : ""}`}>
+          <div ref={printAreaRef} className={`print-area bg-white w-full max-w-4xl shadow-[0px_10px_40px_rgba(31,31,31,0.06)] border border-[#eeeeef] rounded-md overflow-hidden flex flex-col min-h-0 relative select-none invoice-print-card ${bulkPrintInvoices ? "hide-on-bulk-print" : ""}`}>
             
             {/* Blue and Grey Visual Accent Top Bar */}
             <div className="h-1.5 bg-[#0a58ca]" />
