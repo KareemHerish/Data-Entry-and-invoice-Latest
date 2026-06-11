@@ -108,6 +108,224 @@ export default function ExcelPortalView({
   const [isSyncingAll, setIsSyncingAll] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
+  // Google Sheets Row Restoration & Explorer States
+  const [recordsTab, setRecordsTab] = useState<"local_synced" | "google_live">("local_synced");
+  const [googleSheetRows, setGoogleSheetRows] = useState<any[]>([]);
+  const [googleSheetHeaders, setGoogleSheetHeaders] = useState<string[]>([]);
+  const [isFetchingRows, setIsFetchingRows] = useState(false);
+  const [rowsError, setRowsError] = useState<string | null>(null);
+  const [selectedImportRow, setSelectedImportRow] = useState<any | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [hideAlreadyImported, setHideAlreadyImported] = useState(true);
+
+  // Helper to parse product cells formatted like: "تيشرت (سعر: 150 × عدد: 2) | بنطلون (سعر: 250 × عدد: 1)"
+  const parseProductsText = (productsText: string, suggestedAmount: number): { itemName: string; price: number; quantity: number; total: number }[] => {
+    if (!productsText) {
+      return [{ itemName: "صنف مستورد", price: suggestedAmount, quantity: 1, total: suggestedAmount }];
+    }
+    
+    const parsedItems: { itemName: string; price: number; quantity: number; total: number }[] = [];
+    const parts = productsText.split("|");
+    
+    for (const part of parts) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      
+      const regex = /^(.*?)\s*\(سعر:\s*(\d+(?:\.\d+)?)\s*×\s*عدد:\s*(\d+)\)/;
+      const match = trimmed.match(regex);
+      if (match) {
+        const itemName = match[1].trim();
+        const price = parseFloat(match[2]);
+        const quantity = parseInt(match[3], 10);
+        parsedItems.push({
+          itemName: itemName || "صنف غير مسمى",
+          price: isNaN(price) ? 0 : price,
+          quantity: isNaN(quantity) ? 1 : quantity,
+          total: (isNaN(price) ? 0 : price) * (isNaN(quantity) ? 1 : quantity)
+        });
+      } else {
+        parsedItems.push({
+          itemName: trimmed,
+          price: suggestedAmount / parts.length,
+          quantity: 1,
+          total: suggestedAmount / parts.length
+        });
+      }
+    }
+    
+    if (parsedItems.length === 0) {
+      return [{ itemName: productsText, price: suggestedAmount, quantity: 1, total: suggestedAmount }];
+    }
+    
+    return parsedItems;
+  };
+
+  const getRowFieldIndices = (headers: string[]) => {
+    const findIndex = (keywords: string[]) => {
+      return headers.findIndex(h => {
+        const lower = h.toLowerCase();
+        return keywords.some(keyword => lower.includes(keyword));
+      });
+    };
+
+    return {
+      idIdx: findIndex(["رقم", "id", "no"]),
+      nameIdx: findIndex(["الاسم", "اسم", "name", "عميل"]),
+      phoneIdx: findIndex(["تليفون", "هاتف", "phone", "mobile"]),
+      addressIdx: findIndex(["عنوان", "address"]),
+      productsIdx: findIndex(["منتج", "صنف", "أصناف", "item", "product", "الأصناف"]),
+      notesIdx: findIndex(["ملاحظات", "notes", "تسليم"]),
+      shippingIdx: findIndex(["شحن", "توصيل", "shipping"]),
+      totalIdx: findIndex(["اجمالي", "إجمالي", "مجموع", "total"])
+    };
+  };
+
+  const getRowValue = (row: any, keyIndices: any, type: keyof typeof keyIndices) => {
+    const index = keyIndices[type];
+    if (index !== undefined && index !== -1) {
+      return row.rawRow[index] || "";
+    }
+    return "";
+  };
+
+  const isAlreadyImported = (row: any) => {
+    const keyIndices = getRowFieldIndices(googleSheetHeaders);
+    const rowId = getRowValue(row, keyIndices, "idIdx")?.replace(/[#\s]/g, "");
+    const rowName = getRowValue(row, keyIndices, "nameIdx")?.trim();
+    const rowPhone = getRowValue(row, keyIndices, "phoneIdx")?.trim();
+    const rowTotalStr = getRowValue(row, keyIndices, "totalIdx")?.trim() || "";
+    const rowTotal = parseFloat(rowTotalStr.replace(/[^\d\.]/g, "")) || 0;
+
+    return invoices.some(inv => {
+      // 1. If physical row has a valid target ID from our system, match strictly on that id.
+      if (rowId) {
+        const cleanRowId = rowId.trim();
+        const cleanInvId = inv.id.trim();
+        if (
+          cleanRowId === cleanInvId ||
+          cleanInvId === `inv_${cleanRowId}` ||
+          cleanRowId === `inv_${cleanInvId}`
+        ) {
+          return true;
+        }
+      }
+      
+      // 2. If it's a manual row (no rowId or standard raw serial), match by name, phone AND total amount
+      // to make absolutely sure it's the exact same order rather than just a different order for the same customer.
+      if (!rowId || !rowId.startsWith("inv_")) {
+        if (rowName && rowPhone && inv.customerName.trim() === rowName && inv.phone?.trim() === rowPhone) {
+          const systemTotal = inv.totalAmount || 0;
+          const diff = Math.abs(systemTotal - rowTotal);
+          // If total amount matches closely (within 1 EGP margin of roundings), we match it.
+          if (diff < 1.0) {
+            return true;
+          }
+        }
+      }
+      return false;
+    });
+  };
+
+  const fetchGoogleRows = async () => {
+    setIsFetchingRows(true);
+    setRowsError(null);
+    try {
+      const activeLink = googleSheetViewLink || excelSheetLink || "";
+      const res = await fetch(`/api/fetch-google-sheet-rows?excelSheetLink=${encodeURIComponent(activeLink)}`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "فشل جلب المعاملات من شيت جوجل.");
+      }
+      const data = await res.json();
+      if (data.success) {
+        if (data.noLink || data.invalidLink) {
+          setGoogleSheetHeaders([]);
+          setGoogleSheetRows([]);
+          // Do not write to rowsError to preserve clean state and layout flow
+        } else if (data.unauthorized) {
+          setGoogleSheetHeaders([]);
+          setGoogleSheetRows([]);
+          setRowsError(data.error || "الشيت غير متاح للعامة للوصول.");
+        } else {
+          setGoogleSheetHeaders(data.headers || []);
+          setGoogleSheetRows(data.data || []);
+        }
+      } else {
+        throw new Error(data.error || "خطأ غير معروف في قراءة بيانات الشيت.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      setRowsError(err.message || "فشل سحب صفوف البيانات الذكية.");
+    } finally {
+      setIsFetchingRows(false);
+    }
+  };
+
+  useEffect(() => {
+    if (recordsTab === "google_live" && (excelSheetLink || googleSheetViewLink)) {
+      fetchGoogleRows();
+    }
+  }, [recordsTab, excelSheetLink, googleSheetViewLink]);
+
+  const handleImportRowConfirm = async () => {
+    if (!selectedImportRow) return;
+    setIsImporting(true);
+    
+    try {
+      const keyIndices = getRowFieldIndices(googleSheetHeaders);
+      const rowId = getRowValue(selectedImportRow, keyIndices, "idIdx")?.trim() || "";
+      const customerName = getRowValue(selectedImportRow, keyIndices, "nameIdx") || "عميل مستورد";
+      const address = getRowValue(selectedImportRow, keyIndices, "addressIdx") || "";
+      const phone = getRowValue(selectedImportRow, keyIndices, "phoneIdx") || "";
+      const notes = getRowValue(selectedImportRow, keyIndices, "notesIdx") || "";
+      
+      const shippingStr = getRowValue(selectedImportRow, keyIndices, "shippingIdx") || "0";
+      const totalStr = getRowValue(selectedImportRow, keyIndices, "totalIdx") || "0";
+      
+      const parsedShipping = parseFloat(shippingStr.replace(/[^\d\.]/g, "")) || 0;
+      const parsedTotal = parseFloat(totalStr.replace(/[^\d\.]/g, "")) || 0;
+      
+      const productsText = getRowValue(selectedImportRow, keyIndices, "productsIdx") || "";
+      const itemsList = parseProductsText(productsText, parsedTotal - parsedShipping);
+      
+      const payload = {
+        id: rowId, // Keep exact original Spreadsheet Row ID to enable matching on future edits
+        customerName,
+        address,
+        phone,
+        notes,
+        shippingCost: parsedShipping,
+        items: itemsList,
+        isSynced: true, // mark synced so "Sync All" button will treat it as already syced
+        skipGoogleSync: true // skip post sync webhook to avoid duplicacy
+      };
+      
+      const res = await fetch("/api/invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      
+      if (res.ok) {
+        const createdInvoice = await res.json();
+        showToast(`🟢 تم بنجاح استرداد الفاتورة للعميل (${customerName}) وحسابه بالتقارير دون تكرار بالشيت!`);
+        
+        if (onInvoicesBulkUpdated) {
+          onInvoicesBulkUpdated([createdInvoice, ...invoices]);
+        }
+        setSelectedImportRow(null);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showToast(`❌ فشل الاستيراد: ${err.error || "خطأ مبهم"}`);
+      }
+    } catch (e: any) {
+      console.error(e);
+      showToast(`❌ فشل معالجة بيانات الاستيراد: ${e.message}`);
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   const isSyncDisabled = invoices.length === 0 || invoices.every(inv => inv.isSynced === true);
 
   const handleDeleteSingle = async (id: string) => {
@@ -892,103 +1110,498 @@ function doPost(e) {
               }
             })()}
 
-            {/* Simulated Live Database Grid matching the spreadsheet formatting */}
-            <div className="space-y-2.5">
-              <div className="flex justify-between items-center flex-wrap gap-2">
-                <h4 className="text-[11px] font-bold text-black flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 bg-green-600 rounded-full" />
-                  <span>الجدول التفاعلي للفواتير المربوطة حالياً بالشيت (Synchronized Live Records)</span>
-                </h4>
-                <div className="flex items-center gap-2">
-                  {invoices.length > 0 && (
-                    <button 
-                      onClick={handleExportCSV}
-                      className="bg-[#0a58ca] hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>تحميل كشف المبيعات الحالي كملف Excel (CSV)</span>
-                    </button>
-                  )}
-                </div>
+            {/* Tabs & Table Container representing synchronized & live rows */}
+            <div className="space-y-4 pt-4 border-t border-[#eeeeef]">
+              {/* Responsive Elegant Tab Selectors */}
+              <div className="flex border-b border-gray-200" dir="rtl">
+                <button
+                  type="button"
+                  onClick={() => setRecordsTab("local_synced")}
+                  className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold transition-all border-b-2 cursor-pointer ${
+                    recordsTab === "local_synced"
+                      ? "border-[#0a58ca] text-[#0a58ca]"
+                      : "border-transparent text-[#5d5e66] hover:text-black"
+                  }`}
+                >
+                  <span>📋 الفواتير الحالية بالنظام ({invoices.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRecordsTab("google_live")}
+                  className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold transition-all border-b-2 cursor-pointer ${
+                    recordsTab === "google_live"
+                      ? "border-[#0a58ca] text-[#0a58ca]"
+                      : "border-transparent text-[#5d5e66] hover:text-black"
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                    </span>
+                    <span>🔍 مستكشف صفوف شيت جوجل المباشر (استيراد/استعادة)</span>
+                  </div>
+                </button>
               </div>
-              
-              <div className="overflow-x-auto border border-gray-200 rounded-lg">
-                <table className="w-full text-right font-sans text-[11px] border-collapse" dir="rtl">
-                  <thead className="bg-[#f4f4f5] select-none text-black font-semibold border-b border-gray-200">
-                    <tr className="h-8 text-center text-[10px] font-bold text-gray-500 bg-gray-100">
-                      <th className="border border-gray-200 w-8"></th>
-                      <th className="border border-gray-200 w-24">A</th>
-                      <th className="border border-gray-200">B</th>
-                      <th className="border border-gray-200 w-28">C</th>
-                      <th className="border border-gray-200">D</th>
-                      <th className="border border-gray-200 w-24 text-center">E</th>
-                      <th className="border border-gray-200 w-24 text-center">F</th>
-                      <th className="border border-gray-200 w-16 text-center">Actions</th>
-                    </tr>
-                    <tr className="h-9">
-                      <th className="border border-gray-200 w-8 text-center">Row</th>
-                      <th className="border border-gray-200 px-2 text-center">ID المعاملة</th>
-                      <th className="border border-gray-200 px-3">اسم العميل (Customer Name)</th>
-                      <th className="border border-gray-200 px-2 text-center">رقم الهاتف</th>
-                      <th className="border border-gray-200 px-3">العنوان الأساسي للعميل</th>
-                      <th className="border border-gray-200 px-2 text-center">قيمة الفاتورة (Amount)</th>
-                      <th className="border border-gray-200 px-2 text-center">حالة الموازنة الشجرية</th>
-                      <th className="border border-gray-200 px-2 text-center">خيارات</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 bg-white font-mono text-[10px]">
-                    {invoices.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} className="p-8 text-center text-gray-400 font-sans">
-                          لا توجد فواتير مسجلة لعرضها في الشيت حالياً. اكتب فاتورة في صفحة الإدخال أولاً!
-                        </td>
-                      </tr>
-                    ) : (
-                      invoices.slice(0, 10).map((inv, index) => {
-                        return (
-                          <tr key={inv.id} className="hover:bg-blue-50/20 transition h-9">
-                            <td className="border border-gray-200 bg-[#f4f4f5] text-gray-400 text-center select-none font-bold">{index + 1}</td>
-                            <td className="border border-gray-200 text-center text-blue-800 font-bold bg-[#fcfcfd]" dir="ltr">#{inv.id.substring(0, 7)}</td>
-                            <td className="border border-gray-200 px-3 font-sans font-bold text-black">{inv.customerName}</td>
-                            <td className="border border-gray-200 text-center text-gray-600 font-bold" dir="ltr">{inv.phone || "-"}</td>
-                            <td className="border border-gray-200 px-3 font-sans text-gray-500 truncate max-w-[150px]">{inv.address || "-"}</td>
-                            <td className="border border-gray-200 px-2 text-center font-black text-[#0a58ca]" dir="ltr">{inv.totalAmount.toFixed(2)} EGP</td>
-                            <td className="border border-gray-200 text-center font-sans">
-                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-green-50 text-green-700 font-bold border border-green-100">
-                                <span className="w-1 h-1 bg-green-500 rounded-full" />
-                                <span>موازنة تامة</span>
-                              </span>
-                            </td>
-                            <td className="border border-gray-200 text-center">
-                              {confirmDeleteId === inv.id ? (
-                                <button
-                                  onClick={() => handleDeleteSingle(inv.id)}
-                                  className="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-[10px] font-bold transition cursor-pointer animate-pulse"
-                                  title="انقر لتأكيد الحذف النهائي"
-                                >
-                                  تأكيد؟
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => handleDeleteSingle(inv.id)}
-                                  className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition cursor-pointer"
-                                  title="حذف الفاتورة نهائياً"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5 inline-block" />
-                                </button>
-                              )}
+
+              {/* TAB CONTENT 1: LOCAL INVOICES */}
+              {recordsTab === "local_synced" && (
+                <div className="space-y-2.5">
+                  <div className="flex justify-between items-center flex-wrap gap-2">
+                    <h4 className="text-[11px] font-bold text-black flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 bg-green-600 rounded-full" />
+                      <span>الجدول التفاعلي للفواتير المربوطة حالياً بالشيت (Synchronized Live Records)</span>
+                    </h4>
+                    <div className="flex items-center gap-2">
+                      {invoices.length > 0 && (
+                        <button 
+                          onClick={handleExportCSV}
+                          className="bg-[#0a58ca] hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>تحميل كشف المبيعات الحالي كملف Excel (CSV)</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                    <table className="w-full text-right font-sans text-[11px] border-collapse" dir="rtl">
+                      <thead className="bg-[#f4f4f5] select-none text-black font-semibold border-b border-gray-200">
+                        <tr className="h-8 text-center text-[10px] font-bold text-gray-500 bg-gray-100">
+                          <th className="border border-gray-200 w-8"></th>
+                          <th className="border border-gray-200 w-24">A</th>
+                          <th className="border border-gray-200">B</th>
+                          <th className="border border-gray-200 w-28">C</th>
+                          <th className="border border-gray-200">D</th>
+                          <th className="border border-gray-200 w-24 text-center">E</th>
+                          <th className="border border-gray-200 w-24 text-center">F</th>
+                          <th className="border border-gray-200 w-16 text-center">Actions</th>
+                        </tr>
+                        <tr className="h-9">
+                          <th className="border border-gray-200 w-8 text-center">Row</th>
+                          <th className="border border-gray-200 px-2 text-center">ID المعاملة</th>
+                          <th className="border border-gray-200 px-3">اسم العميل (Customer Name)</th>
+                          <th className="border border-gray-200 px-2 text-center">رقم الهاتف</th>
+                          <th className="border border-gray-200 px-3">العنوان الأساسي للعميل</th>
+                          <th className="border border-gray-200 px-2 text-center">قيمة الفاتورة (Amount)</th>
+                          <th className="border border-gray-200 px-2 text-center">حالة الموازنة الشجرية</th>
+                          <th className="border border-gray-200 px-2 text-center">خيارات</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 bg-white font-mono text-[10px]">
+                        {invoices.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} className="p-8 text-center text-gray-400 font-sans">
+                              لا توجد فواتير مسجلة لعرضها في الشيت حالياً. اكتب فاتورة في صفحة الإدخال أولاً!
                             </td>
                           </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                        ) : (
+                          invoices.slice(0, 10).map((inv, index) => {
+                            return (
+                              <tr key={inv.id} className="hover:bg-blue-50/20 transition h-9">
+                                <td className="border border-gray-200 bg-[#f4f4f5] text-gray-400 text-center select-none font-bold">{index + 1}</td>
+                                <td className="border border-gray-200 text-center text-blue-800 font-bold bg-[#fcfcfd]" dir="ltr">#{inv.id.substring(0, 7)}</td>
+                                <td className="border border-gray-200 px-3 font-sans font-bold text-black">{inv.customerName}</td>
+                                <td className="border border-gray-200 text-center text-gray-600 font-bold" dir="ltr">{inv.phone || "-"}</td>
+                                <td className="border border-gray-200 px-3 font-sans text-gray-500 truncate max-w-[150px]">{inv.address || "-"}</td>
+                                <td className="border border-gray-200 px-2 text-center font-black text-[#0a58ca]" dir="ltr">{inv.totalAmount.toFixed(2)} EGP</td>
+                                <td className="border border-gray-200 text-center font-sans">
+                                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-green-50 text-green-700 font-bold border border-green-100">
+                                    <span className="w-1 h-1 bg-green-500 rounded-full" />
+                                    <span>موازنة تامة</span>
+                                  </span>
+                                </td>
+                                <td className="border border-gray-200 text-center">
+                                  {confirmDeleteId === inv.id ? (
+                                    <button
+                                      onClick={() => handleDeleteSingle(inv.id)}
+                                      className="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-[10px] font-bold transition cursor-pointer animate-pulse"
+                                      title="انقر لتأكيد الحذف النهائي"
+                                    >
+                                      تأكيد؟
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleDeleteSingle(inv.id)}
+                                      className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition cursor-pointer"
+                                      title="حذف الفاتورة نهائياً"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5 inline-block" />
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB CONTENT 2: LIVE GOOGLE SHEETS ROWS EXPLORER */}
+              {recordsTab === "google_live" && (
+                !(excelSheetLink || googleSheetViewLink) ? (
+                  <div className="bg-amber-50/50 border border-amber-200 rounded-xl p-6 text-right space-y-4 max-w-xl mx-auto" dir="rtl">
+                    <div className="flex gap-3 items-start">
+                      <div className="bg-amber-100 p-2.5 rounded-lg text-amber-800 shrink-0">
+                        <FileSpreadsheet className="w-5 h-5" />
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-bold text-amber-900">ربط شيت جوجل مبيعاتك للمزامنة والاستعادة الحية</h4>
+                        <p className="text-xs text-amber-700 leading-relaxed font-sans">
+                          مستكشف شيت جوجل التفاعلي يتيح لك جلب ومراجعة وتعديل واسترداد الطلبيات المسجلة بالشيت مباشرة. لتبدأ الآن، يرجى تزويدنا برابط الشيت الخاص بك:
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 pt-2">
+                      <div>
+                        <label className="text-[10px] font-bold text-amber-800 block mb-1">رابط عرض شيت جوجل (Google Spreadsheet Edit/View Link)</label>
+                        <input 
+                          type="url" 
+                          placeholder="مثال: https://docs.google.com/spreadsheets/d/.../edit" 
+                          value={localViewLink}
+                          onChange={(e) => setLocalViewLink(e.target.value)}
+                          className="w-full px-3 py-2 bg-white border border-amber-200 focus:border-amber-500 rounded-lg text-xs outline-none font-sans"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-amber-800 block mb-1">رابط المزامنة التلقائية (Apps Script URL - اختياري للمزامنة التلقائية)</label>
+                        <input 
+                          type="url" 
+                          placeholder="مثال: https://script.google.com/macros/s/.../exec" 
+                          value={localLink}
+                          onChange={(e) => setLocalLink(e.target.value)}
+                          className="w-full px-3 py-2 bg-white border border-amber-200 focus:border-amber-500 rounded-lg text-xs outline-none font-sans"
+                        />
+                      </div>
+                      <div className="flex justify-end pt-1">
+                        <button 
+                          onClick={() => handleUpdateLink(localLink, localViewLink)}
+                          className="bg-[#0a58ca] hover:bg-blue-700 text-white px-5 py-2 rounded-lg text-xs font-bold transition shrink-0 cursor-pointer shadow-sm active:scale-95"
+                        >
+                          ربط وحفظ الملف الآن ومتابعة الاستيراد 🔌
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center flex-wrap gap-2" dir="rtl">
+                      <div>
+                        <h4 className="text-[11px] font-bold text-black flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                          <span>الصفوف الحية بجدول مبيعات جوجل النشط (Live Google Spreadsheet Rows Editor)</span>
+                        </h4>
+                        <p className="text-[10px] text-gray-400 mt-0.5">انقر على أي صف لاستقدام المعاملة وتحويلها فوراً لفاتورة مستقلة بالنظام والتقارير.</p>
+                      </div>
+                      <button
+                        onClick={fetchGoogleRows}
+                        disabled={isFetchingRows}
+                        className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-bold text-[10px] rounded border border-zinc-200 transition flex items-center gap-1 cursor-pointer"
+                      >
+                        <Loader2 className={`w-3 h-3 ${isFetchingRows ? "animate-spin" : ""}`} />
+                        <span>تحديث صفوف الشيت 🔄</span>
+                      </button>
+                    </div>
+
+                    {/* Filter Toggle Bar */}
+                    <div className="flex flex-wrap justify-between items-center bg-[#f8fafc] border border-slate-100 p-2.5 rounded-lg text-xs gap-3 font-sans" dir="rtl">
+                      <label className="flex items-center gap-2 cursor-pointer font-bold text-[#334155] text-[10.5px] select-none hover:text-black transition">
+                        <input
+                          type="checkbox"
+                          checked={hideAlreadyImported}
+                          onChange={(e) => setHideAlreadyImported(e.target.checked)}
+                          className="w-4 h-4 accent-[#0a58ca] rounded cursor-pointer transition-colors"
+                        />
+                        <span>إخفاء الفواتير المستوردة مسبقاً (عرض المعاملات الجديدة فقط) 📥</span>
+                      </label>
+                      <div className="text-[10px] text-gray-500 font-medium">
+                        <span>إجمالي المعاملات بالشيت: </span>
+                        <strong className="font-mono text-black text-[11px] bg-gray-100 px-1.5 py-0.5 rounded">{googleSheetRows.length}</strong>
+                        {hideAlreadyImported && (
+                          <>
+                            <span className="mx-1 text-gray-300">|</span>
+                            <span>المتبقي غير المسجل: </span>
+                            <strong className="font-mono text-emerald-600 text-[11px] bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
+                              {(() => {
+                                const keyIndices = getRowFieldIndices(googleSheetHeaders);
+                                return googleSheetRows.filter(row => !isAlreadyImported(row)).length;
+                              })()}
+                            </strong>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                      <table className="w-full text-right font-sans text-[11px] border-collapse" dir="rtl">
+                        <thead className="bg-[#f8f9fa] select-none text-black font-semibold border-b border-gray-200">
+                          <tr className="h-8 text-center text-[10px] font-bold text-gray-400 bg-gray-50">
+                            <th className="border border-gray-200 w-12 text-center">صف #</th>
+                            <th className="border border-gray-200 px-2 text-center w-24">معرف الفاتورة</th>
+                            <th className="border border-gray-200 px-3">العميل (Customer)</th>
+                            <th className="border border-gray-200 px-2 text-center w-28">رقم الهاتف</th>
+                            <th className="border border-gray-200 px-3">العنوان والمنطقة</th>
+                            <th className="border border-gray-200 px-3">أصناف الشحنة للعميل</th>
+                            <th className="border border-gray-200 px-2 text-center w-24">القيمة الإجمالية</th>
+                            <th className="border border-gray-200 px-2 text-center w-28">التحكم / خيارات</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 bg-white text-[10px]">
+                          {isFetchingRows ? (
+                            <tr>
+                              <td colSpan={8} className="p-12 text-center text-gray-500 font-sans">
+                                <Loader2 className="w-6 h-6 animate-spin text-[#0a58ca] mx-auto mb-2" />
+                                <span>جاري تصفح ومطابقة المعاملات الحية مباشرة من شيت جوجل...</span>
+                              </td>
+                            </tr>
+                          ) : rowsError ? (
+                            <tr>
+                              <td colSpan={8} className="p-8 text-center text-red-600 font-sans">
+                                <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
+                                <p className="font-bold text-xs mb-1">فشل سحب صفوف البيانات من شيت جوجل</p>
+                                <p className="text-[10px] text-gray-500 max-w-md mx-auto leading-relaxed">
+                                  {rowsError}. تأكد من تفعيل "مشاركة للجميع" (Anyone with the link can view) على شيت جوجل، وتأكد من ملء الرابط بشكل صحيح.
+                                </p>
+                              </td>
+                            </tr>
+                          ) : googleSheetRows.length === 0 ? (
+                            <tr>
+                              <td colSpan={8} className="p-12 text-center text-gray-400 font-sans">
+                                <FileSpreadsheet className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                                <span>لا توجد صفوف مبيعات مسجلة في شيت جوجل هذا بعد أو الشيت غير متاح للعامة.</span>
+                              </td>
+                            </tr>
+                          ) : (
+                            (() => {
+                              const keyIndices = getRowFieldIndices(googleSheetHeaders);
+                              const filteredRows = googleSheetRows.filter(row => {
+                                if (hideAlreadyImported && isAlreadyImported(row)) {
+                                  return false;
+                                }
+                                return true;
+                              });
+
+                              if (filteredRows.length === 0) {
+                                return (
+                                  <tr>
+                                    <td colSpan={8} className="p-12 text-center text-gray-400 font-sans">
+                                      <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
+                                      <span className="font-bold text-gray-700 text-xs block">جميع المعاملات في هذا الشيت مستوردة ومسجلة بالفعل بالنظام! 🎉</span>
+                                      {hideAlreadyImported && (
+                                        <button 
+                                          type="button" 
+                                          onClick={() => setHideAlreadyImported(false)}
+                                          className="mt-2 text-[#0a58ca] hover:underline font-bold text-[10px] cursor-pointer"
+                                        >
+                                          عرض الفواتير المستوردة مسبقاً (تعطيل تصفية الفلتر)
+                                        </button>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              }
+
+                              return filteredRows.map((row) => {
+                                const rowId = getRowValue(row, keyIndices, "idIdx");
+                                const name = getRowValue(row, keyIndices, "nameIdx") || "غير محدد";
+                                const phone = getRowValue(row, keyIndices, "phoneIdx") || "-";
+                                const address = getRowValue(row, keyIndices, "addressIdx") || "-";
+                                const products = getRowValue(row, keyIndices, "productsIdx") || "-";
+                                const total = getRowValue(row, keyIndices, "totalIdx") || "0.00";
+                                const isImported = isAlreadyImported(row);
+
+                                return (
+                                  <tr key={row.rowNumber} className="hover:bg-blue-50/20 transition h-9">
+                                    <td className="border border-gray-200 bg-[#f4f4f5] text-gray-400 text-center select-none font-bold font-mono">
+                                      {row.rowNumber}
+                                    </td>
+                                    <td className="border border-gray-200 text-center text-zinc-500 font-mono" dir="ltr">
+                                      {rowId ? (rowId.startsWith("inv_") ? `#${rowId.substring(0, 7)}` : rowId) : `-`}
+                                    </td>
+                                    <td className="border border-gray-200 px-3 font-bold text-black text-right">
+                                      {name}
+                                    </td>
+                                    <td className="border border-gray-200 text-center text-gray-600 font-bold font-mono" dir="ltr">
+                                      {phone}
+                                    </td>
+                                    <td className="border border-gray-200 px-3 text-gray-500 truncate max-w-[130px] text-right">
+                                      {address}
+                                    </td>
+                                    <td className="border border-gray-200 px-3 text-gray-500 truncate max-w-[180px] text-right">
+                                      {products}
+                                    </td>
+                                    <td className="border border-gray-200 px-2 text-center font-bold text-[#0a58ca] font-mono" dir="ltr">
+                                      {total.includes("EGP") ? total : `${total} EGP`}
+                                    </td>
+                                    <td className="border border-gray-200 text-center font-sans">
+                                      {isImported ? (
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded bg-green-50 text-green-700 font-bold text-[9px] border border-green-100">
+                                          <CheckCircle2 className="w-2.5 h-2.5 text-green-600" />
+                                          <span>مدرجة بالنظام</span>
+                                        </span>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => setSelectedImportRow(row)}
+                                          className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded text-[9px] transition cursor-pointer inline-flex items-center gap-1"
+                                        >
+                                          <span>استيراد فاتورة 📥</span>
+                                        </button>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              });
+                            })()
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )
+              )}
             </div>
           </div>
         )}
       </div>
+
+      {/* Import Confirmation Dialog Modal */}
+      {selectedImportRow && (() => {
+        const keyIndices = getRowFieldIndices(googleSheetHeaders);
+        const name = getRowValue(selectedImportRow, keyIndices, "nameIdx") || "عميل غير مسمى";
+        const phone = getRowValue(selectedImportRow, keyIndices, "phoneIdx") || "-";
+        const address = getRowValue(selectedImportRow, keyIndices, "addressIdx") || "-";
+        const notes = getRowValue(selectedImportRow, keyIndices, "notesIdx") || "-";
+        const shippingStr = getRowValue(selectedImportRow, keyIndices, "shippingIdx") || "0";
+        const totalStr = getRowValue(selectedImportRow, keyIndices, "totalIdx") || "0";
+        
+        const parsedShipping = parseFloat(shippingStr.replace(/[^\d\.]/g, "")) || 0;
+        const parsedTotal = parseFloat(totalStr.replace(/[^\d\.]/g, "")) || 0;
+        
+        const productsText = getRowValue(selectedImportRow, keyIndices, "productsIdx") || "";
+        const parsedItems = parseProductsText(productsText, parsedTotal - parsedShipping);
+
+        return (
+          <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl border border-gray-200 max-w-lg w-full overflow-hidden text-right font-sans" dir="rtl">
+              {/* Header bar */}
+              <div className="bg-[#0a58ca] text-white px-5 py-3 flex justify-between items-center select-none">
+                <h4 className="font-bold text-xs flex items-center gap-1.5">
+                  <FileSpreadsheet className="w-4 h-4 text-white" />
+                  <span>📥 استعادة واستيراد الفاتورة من شيت مبيعات جوجل</span>
+                </h4>
+                <button 
+                  onClick={() => setSelectedImportRow(null)}
+                  className="text-white hover:text-red-200 cursor-pointer text-sm font-bold bg-white/10 w-6 h-6 rounded-full flex items-center justify-center"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Information body split into cards */}
+              <div className="p-5 space-y-4 text-xs max-h-[400px] overflow-y-auto">
+                <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-amber-900 text-[10px] leading-relaxed">
+                  ⚠️ <strong>انتبه جداً:</strong> سيتم استعادة هذه الفاتورة وإدراجها بـ <strong>Dashboard</strong> و <strong>Analytics</strong> بالنظام، ونظراً لأنها مسجلة مسبقاً في شيت جوجل؛ <strong>لن تتم إعادة إضافتها للشيت مرة أخرى</strong> لحمايته من تكرار الأسطر ومضاعفة الأرقام!
+                </div>
+
+                <div className="border border-gray-200 rounded-lg p-3.5 space-y-2 bg-gray-50/50">
+                  <h5 className="font-bold text-black border-b border-gray-200 pb-1.5 mb-2 flex items-center gap-1.5 text-[11px]">
+                    <span className="w-1.5 h-1.5 bg-[#0a58ca] rounded-full" />
+                    <span>تفاصيل العميل والوجهة</span>
+                  </h5>
+                  <div className="grid grid-cols-2 gap-3 leading-relaxed">
+                    <div>
+                      <span className="text-[#5d5e66] block text-[10px]">اسم العميل:</span>
+                      <strong className="text-black font-black text-[11px]">{name}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[#5d5e66] block text-[10px]">رقم الهاتف:</span>
+                      <strong className="text-black font-semibold font-mono" dir="ltr">{phone}</strong>
+                    </div>
+                  </div>
+                  <div className="pt-1.5 leading-relaxed">
+                    <span className="text-[#5d5e66] block text-[10px]">العنوان والتسليم:</span>
+                    <p className="text-gray-800 font-medium font-sans">{address}</p>
+                  </div>
+                  {notes && notes !== "-" && notes !== "" && (
+                    <div className="pt-1 bg-white p-2 rounded border border-gray-100 text-[10px] mt-1">
+                      <span className="text-gray-400 block pb-0.5">ملاحظات التسليم:</span>
+                      <span className="text-gray-700">{notes}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Items analysis table */}
+                <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+                  <div className="bg-[#f0f4fc] px-3.5 py-1.5 border-b border-gray-200">
+                    <h5 className="font-bold text-[#0a58ca] text-[10px]">📦 تفاصيل الأصناف المستخرجة والأسعار ({parsedItems.length})</h5>
+                  </div>
+                  <table className="w-full text-right text-[10px] border-collapse bg-white">
+                    <thead className="bg-[#f8f9fa] text-gray-500 border-b border-gray-200">
+                      <tr>
+                        <th className="p-2 font-bold text-right">اسم الصنف المسترجع</th>
+                        <th className="p-2 text-center w-20 font-bold border-r border-gray-100">السعر</th>
+                        <th className="p-2 text-center w-12 font-bold border-r border-gray-100">الكمية</th>
+                        <th className="p-2 text-center w-20 font-bold border-r border-gray-100">المجموع</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {parsedItems.map((it, idx) => (
+                        <tr key={idx} className="hover:bg-zinc-50/50">
+                          <td className="p-2 font-medium text-black text-right">{it.itemName}</td>
+                          <td className="p-2 text-center font-mono border-r border-gray-100">{(it.price || 0).toFixed(2)}</td>
+                          <td className="p-2 text-center font-bold font-mono border-r border-gray-100">{it.quantity}</td>
+                          <td className="p-2 text-center font-bold text-[#0a58ca] font-mono border-r border-gray-100">{(it.total || 0).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="bg-gray-50/80 p-2 border-t border-gray-200 flex justify-between font-bold text-[10px] px-3">
+                    <span className="text-[#5d5e66]">تكلفة التوصيل (الشحن):</span>
+                    <span className="font-mono text-black">{parsedShipping.toFixed(2)} EGP</span>
+                  </div>
+                  <div className="bg-[#ebf3fe] p-2.5 border-t border-gray-200 flex justify-between font-black text-[11px] px-3 text-[#0a58ca]">
+                    <span>الإجمالي الكلي المحسوب:</span>
+                    <span className="font-mono">{parsedTotal.toFixed(2)} EGP</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer action buttons */}
+              <div className="bg-gray-50 px-5 py-3.5 flex justify-end gap-2.5 border-t border-gray-200 select-none">
+                <button
+                  type="button"
+                  onClick={() => setSelectedImportRow(null)}
+                  disabled={isImporting}
+                  className="px-4 py-2 bg-white hover:bg-gray-100 border border-gray-300 text-gray-700 font-bold rounded-lg transition active:scale-95 disabled:opacity-50 cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  onClick={handleImportRowConfirm}
+                  disabled={isImporting}
+                  className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg transition shadow-md active:scale-95 flex items-center gap-1.5 disabled:opacity-60 cursor-pointer"
+                >
+                  {isImporting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>جاري المعالجة...</span>
+                    </>
+                  ) : (
+                    <span>استيراد واستعادة الفاتورة الآن ✅</span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );
