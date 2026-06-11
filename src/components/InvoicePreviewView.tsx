@@ -619,7 +619,7 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
           }
           
           .bulk-print-container .invoice-print-card {
-            max-width: 800px !important;
+            max-width: 900px !important;
             margin-left: auto !important;
             margin-right: auto !important;
           }
