@@ -285,23 +285,28 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
     } else if (bulkType === "manual") {
       selectedInvoicesList = invoices.filter(inv => manualSelectedIds.includes(inv.id));
     }
-
+  
     if (selectedInvoicesList.length === 0) {
       alert("الرجاء تحديد فاتورة واحدة على الأقل للطباعة كـ PDF.");
       return;
     }
-
-    setBulkPrintInvoices(selectedInvoicesList);
+  
+    // Remove duplicates by ID to ensure no invoice appears twice
+    const uniqueInvoices = Array.from(
+      new Map(selectedInvoicesList.map(inv => [inv.id, inv])).values()
+    );
+  
+    setBulkPrintInvoices(uniqueInvoices);
     setShowBulkModal(false);
-
+  
     // Short timeout to give React rendering cycle time to build the A4 printable DOM views
     setTimeout(() => {
       window.print();
-      // Restore view structure safely
+      // Restore view structure safely after longer delay to ensure print dialog opens
       setTimeout(() => {
         setBulkPrintInvoices(null);
-      }, 500);
-    }, 150);
+      }, 1000);
+    }, 200);
   };
 
   const handleDownloadBulkWorddocx_UNUSED = () => {
@@ -1178,7 +1183,7 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
 
       {/* Dynamic Bulk Printable Pages Container */}
       {bulkPrintInvoices && (
-        <div className="bulk-print-container w-full font-sans">
+        <div className="bulk-print-container w-full font-sans" key="bulk-container">
           {bulkPrintInvoices.map((rawInv, index) => {
             const inv = sanitizeInvoice(rawInv);
             if (!inv) return null;
@@ -1187,7 +1192,7 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
 
             return (
               <div 
-                key={inv.id} 
+                key={`bulk-invoice-${inv.id}-${index}`} 
                 className="bg-white w-full max-w-4xl mx-auto flex flex-col relative p-8 select-none invoice-print-card"
               >
                 {/* Blue Visual Accent Top Bar */}
