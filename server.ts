@@ -656,7 +656,7 @@ app.get("/api/invoices", (req, res) => {
 
 // Create/Sync Invoice
 app.post("/api/invoices", async (req, res) => {
-  const { customerName, address, phone, items, notes, shippingCost, excelSheetLink: clientExcelSheetLink } = req.body;
+  const { id, customerName, address, phone, items, notes, shippingCost, excelSheetLink: clientExcelSheetLink, isSynced, skipGoogleSync } = req.body;
   
   if (!customerName) {
     return res.status(400).json({ error: "Customer name is required" });
@@ -677,7 +677,7 @@ app.post("/api/invoices", async (req, res) => {
   const isSyncedToGoogle = !!(activeLink && activeLink.includes("script.google.com"));
 
   const newInvoice: Invoice = {
-    id: `inv_${Date.now()}`,
+    id: id || `inv_${Date.now()}`,
     customerName,
     address: address || "",
     phone: phone || "",
@@ -685,13 +685,13 @@ app.post("/api/invoices", async (req, res) => {
     notes: notes || "",
     totalAmount,
     shippingCost: parsedShipping,
-    isSynced: false, // will update below if sync succeeds
+    isSynced: isSynced || false, // will update below if sync succeeds or if pre-marked as synced
     createdAt: new Date().toISOString()
   };
 
   let syncSuccess = false;
   // Trigger Synchronous Sync to Google Sheets web app if link is configured
-  if (isSyncedToGoogle) {
+  if (isSyncedToGoogle && !skipGoogleSync) {
     console.log("Triggering Google Sheets webhook sync for invoice:", newInvoice.id, "to URL:", activeLink);
     const syncPayload = {
       ...newInvoice,
@@ -954,6 +954,140 @@ app.delete("/api/excel-files/:id", (req, res) => {
   excelFiles = excelFiles.filter(item => item.id !== id);
   saveData(EXCEL_FILES_FILE, excelFiles);
   res.json({ success: true });
+});
+
+// Robust RFC 4180 compliant CSV parser
+function parseCSV(text: string): string[][] {
+  const lines: string[][] = [];
+  let row: string[] = [];
+  let inQuotes = false;
+  let currentVal = "";
+  
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const nextChar = text[i + 1];
+    
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        currentVal += '"';
+        i++; // skip double quote
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      row.push(currentVal.trim());
+      currentVal = "";
+    } else if ((char === '\r' || char === '\n') && !inQuotes) {
+      if (char === '\r' && nextChar === '\n') {
+        i++; // skip \n
+      }
+      row.push(currentVal.trim());
+      if (row.length > 0 && row.some(cell => cell !== "")) {
+        lines.push(row);
+      }
+      row = [];
+      currentVal = "";
+    } else {
+      currentVal += char;
+    }
+  }
+  // catch trailing row
+  if (currentVal !== "" || row.length > 0) {
+    row.push(currentVal.trim());
+    if (row.some(cell => cell !== "")) {
+      lines.push(row);
+    }
+  }
+  return lines;
+}
+
+// Endpoint to fetch live Google Sheets rows dynamically and securely bypassing CORS
+app.get("/api/fetch-google-sheet-rows", async (req, res) => {
+  const clientExcelSheetLink = req.query.excelSheetLink as string;
+  const clientViewLink = req.query.googleSheetViewLink as string;
+  const activeLink = clientViewLink || clientExcelSheetLink || googleSheetViewLink || excelSheetLink;
+
+  if (!activeLink) {
+    return res.json({ 
+      success: true, 
+      noLink: true,
+      headers: [],
+      data: [], 
+      error: null
+    });
+  }
+
+  // Extract spreadsheet ID via regex
+  const match = activeLink.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (!match || !match[1]) {
+    return res.json({ 
+      success: true, 
+      invalidLink: true, 
+      headers: [],
+      data: [],
+      error: null
+    });
+  }
+
+  const spreadsheetId = match[1];
+  const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv`;
+
+  try {
+    const csvRes = await fetch(csvUrl);
+    if (!csvRes.ok) {
+      return res.json({
+        success: true,
+        unauthorized: true,
+        headers: [],
+        data: [],
+        error: `شيت جوجل غير مصرح بالوصول إليه (Unauthorized/Forbidden). يرجى التأكد من تغيير إعداد مشاركة الشيت ليكون 'أي شخص لديه الرابط يمكنه العرض' (Anyone with the link can view).`
+      });
+    }
+
+    const csvContent = await csvRes.text();
+    // Check if google redirected us to their login screen (which returns 200 OK with HTML content)
+    const trimmedContent = csvContent.trim();
+    if (trimmedContent.startsWith("<!DOCTYPE html") || trimmedContent.startsWith("<html") || trimmedContent.includes("google-signin") || trimmedContent.includes("<script")) {
+      return res.json({
+        success: true,
+        unauthorized: true,
+        headers: [],
+        data: [],
+        error: "الشيت مغلق أو خاص بحسابك فقط. يرجى تفعيل إعداد المشاركة في شيت جوجل ليكون 'أي شخص لديه الرابط يمكنه العرض' (Anyone with the link can view) حتى يتمكن النظام من قراءة خلايا الطلبات تلقائياً."
+      });
+    }
+
+    const rows = parseCSV(csvContent);
+
+    if (rows.length === 0) {
+      return res.json({ success: true, headers: [], data: [], message: "الشيت فارغ أو غير متاح." });
+    }
+
+    const headers = rows[0].map(h => h.trim());
+    const dataRows = rows.slice(1).map((row, idx) => {
+      const obj: Record<string, string> = {};
+      headers.forEach((header, index) => {
+        obj[header] = row[index] || "";
+      });
+      return {
+        rowNumber: idx + 2, // 1-index + 1 for header offset
+        rawRow: row,
+        rowData: obj
+      };
+    });
+
+    res.json({
+      success: true,
+      headers,
+      data: dataRows
+    });
+  } catch (error: any) {
+    console.error("Error fetching Google Sheet CSV:", error);
+    res.json({ 
+      success: false, 
+      error: `فشل جلب وتصفح بيانات شيت جوجل الحية: ${error.message}. يرجى التكرم بتغيير إعدادات مشاركة الشيت ليكون متاحاً لـ 'أي شخص لديه الرابط' (Anyone with the link can view).` 
+    });
+  }
 });
 
 // GET active Excel sheet link
