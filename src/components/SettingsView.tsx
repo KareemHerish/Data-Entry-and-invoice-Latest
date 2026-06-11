@@ -100,6 +100,8 @@ export default function SettingsView({ showToast }: SettingsViewProps) {
     try {
       const res = await fetch("/api/reset", { method: "POST" });
       if (res.ok) {
+        // Clear all local storage data to reset client as well as server
+        localStorage.clear();
         showToast("تم إعادة ضبط البراند على نقطة الصفر كاملة! جاري إعادة التحميل...");
         setTimeout(() => {
           window.location.reload();
