@@ -568,7 +568,7 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
       <style>{`
         @page {
           size: A4;
-          margin: 0.5cm 0.5cm 0.5cm 0.5cm;
+          margin: 0.5cm 0.5cm 0.7cm 0.5cm;
         }
         
         .invoice-print-card {
