@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import html2canvas from "html2canvas";
 import { 
   ArrowLeft, 
@@ -15,6 +15,46 @@ import {
   X
 } from "lucide-react";
 import { Invoice } from "../types";
+
+export const sanitizeInvoice = (invoice: Invoice | undefined): Invoice | undefined => {
+  if (!invoice) return undefined;
+  
+  // Detect if any items in the array are actually a shipping/delivery charge
+  let extraShippingCost = 0;
+  const filteredItems = invoice.items.filter((item) => {
+    const name = (item.itemName || "").trim().toLowerCase();
+    const isShipping = name === "شحن" || 
+                       name === "توصيل" || 
+                       name === "الشحن" ||
+                       name === "التوصيل" ||
+                       name.includes("مصاريف شحن") || 
+                       name.includes("تكلفة شحن") || 
+                       name.includes("قيمة الشحن") ||
+                       name.includes("شحن القاهره") ||
+                       name.includes("شحن الجيزه") ||
+                       name.includes("توصيل الشحن") ||
+                       name.startsWith("شحن ") ||
+                       name.startsWith("توصيل ");
+    
+    if (isShipping) {
+      extraShippingCost += item.total || (item.price * item.quantity) || 0;
+      return false; // dynamic exclude from regular list
+    }
+    return true;
+  });
+
+  const baseShipping = invoice.shippingCost || 0;
+  const finalShippingCost = baseShipping > 0 ? baseShipping : extraShippingCost;
+  const itemsSubtotal = filteredItems.reduce((acc, curr) => acc + curr.total, 0);
+  const totalAmount = itemsSubtotal + finalShippingCost;
+
+  return {
+    ...invoice,
+    items: filteredItems,
+    shippingCost: finalShippingCost,
+    totalAmount: totalAmount
+  };
+};
 
 interface InvoicePreviewViewProps {
   invoices: Invoice[];
@@ -36,7 +76,8 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
   const [bulkPrintInvoices, setBulkPrintInvoices] = useState<Invoice[] | null>(null);
 
   // If no invoices yet, show graceful placeholder
-  const activeInvoice = invoices[selectedInvoiceIndex];
+  const rawActiveInvoice = invoices[selectedInvoiceIndex];
+  const activeInvoice = useMemo(() => sanitizeInvoice(rawActiveInvoice), [rawActiveInvoice]);
   const itemsSubtotal = activeInvoice ? activeInvoice.items.reduce((acc, curr) => acc + curr.total, 0) : 0;
   const shippingFee = activeInvoice ? (activeInvoice.shippingCost || 0) : 0;
   const printAreaRef = useRef<HTMLDivElement>(null);
@@ -219,7 +260,14 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
   };
 
   const printInvoice = () => {
-    window.print();
+    // Give React time to render, then trigger print
+    setTimeout(() => {
+      window.print();
+      // Reset state after print dialog closes
+      setTimeout(() => {
+        // State stays as is
+      }, 500);
+    }, 100);
   };
 
   const openBulkModal = () => {
@@ -246,19 +294,14 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
     setBulkPrintInvoices(selectedInvoicesList);
     setShowBulkModal(false);
 
-    // FIX: زيادة الـ timeout + استخدام requestAnimationFrame مرتين
-    // عشان React يـ re-render الـ DOM الجديد قبل ما window.print() يتنفذ
+    // Short timeout to give React rendering cycle time to build the A4 printable DOM views
     setTimeout(() => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          window.print();
-          // Restore view structure safely after print dialog closes
-          setTimeout(() => {
-            setBulkPrintInvoices(null);
-          }, 500);
-        });
-      });
-    }, 400);
+      window.print();
+      // Restore view structure safely
+      setTimeout(() => {
+        setBulkPrintInvoices(null);
+      }, 500);
+    }, 150);
   };
 
   const handleDownloadBulkWorddocx_UNUSED = () => {
@@ -279,7 +322,9 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
     try {
       const fileName = `مجموعة_فواتير_O_A_Brand_${Date.now()}.docx`;
       
-      const invoicesBody = selectedInvoicesList.map((inv, index) => {
+      const invoicesBody = selectedInvoicesList.map((rawInv, index) => {
+        const inv = sanitizeInvoice(rawInv);
+        if (!inv) return "";
         const itemsSubtotal = inv.items.reduce((acc, curr) => acc + curr.total, 0);
         const shippingFee = inv.shippingCost || 0;
         const pageBreakHtml = index > 0 ? `<br clear="all" class="page-break" style="page-break-before: always; mso-break-type: section-break;" />` : "";
@@ -399,20 +444,87 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
               color: #111111; 
               margin: 20px;
             }
-            .header-table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
-            .brand-name { font-size: 26px; font-weight: bold; color: #111111; direction: ltr !important; text-align: left; }
-            .invoice-label { font-size: 20px; font-weight: bold; color: #ffffff; }
-            .customer-details { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px; border-radius: 8px; margin-bottom: 25px; }
-            .detail-row { margin-bottom: 8px; font-size: 13px; }
-            .detail-label { font-weight: bold; color: #0a58ca; display: inline-block; width: 100px; }
-            .table-items { width: 100%; border-collapse: collapse; margin-bottom: 25px; border: 1px solid #0a58ca; }
-            .table-items th { background-color: #0a58ca; color: #ffffff; font-weight: bold; font-size: 12px; padding: 8px; border: 1px solid #0a58ca; text-align: center; }
-            .table-items td { padding: 8px; border: 1px solid #e9ecef; font-size: 12px; text-align: center; }
-            .table-items .item-name { text-align: right; }
-            .total-row { background-color: #f8f9fa; font-weight: bold; }
-            .total-amount { color: #0a58ca; font-size: 15px; }
-            .footer-strip { background-color: #0a58ca; color: #ffffff; padding: 12px; text-align: center; font-weight: bold; font-size: 14px; margin-top: 30px; border-radius: 4px; }
-            .page-break { page-break-before: always; mso-break-type: section-break; clear: all; }
+            .header-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 25px;
+            }
+            .brand-name {
+              font-size: 26px;
+              font-weight: bold;
+              color: #111111;
+              direction: ltr !important;
+              text-align: left;
+            }
+            .invoice-label {
+              font-size: 20px;
+              font-weight: bold;
+              color: #ffffff;
+            }
+            .customer-details {
+              background-color: #f8f9fa;
+              border: 1px solid #e9ecef;
+              padding: 15px;
+              border-radius: 8px;
+              margin-bottom: 25px;
+            }
+            .detail-row {
+              margin-bottom: 8px;
+              font-size: 13px;
+            }
+            .detail-label {
+              font-weight: bold;
+              color: #0a58ca;
+              display: inline-block;
+              width: 100px;
+            }
+            .table-items {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 25px;
+              border: 1px solid #0a58ca;
+            }
+            .table-items th {
+              background-color: #0a58ca;
+              color: #ffffff;
+              font-weight: bold;
+              font-size: 12px;
+              padding: 8px;
+              border: 1px solid #0a58ca;
+              text-align: center;
+            }
+            .table-items td {
+              padding: 8px;
+              border: 1px solid #e9ecef;
+              font-size: 12px;
+              text-align: center;
+            }
+            .table-items .item-name {
+              text-align: right;
+            }
+            .total-row {
+              background-color: #f8f9fa;
+              font-weight: bold;
+            }
+            .total-amount {
+              color: #0a58ca;
+              font-size: 15px;
+            }
+            .footer-strip {
+              background-color: #0a58ca;
+              color: #ffffff;
+              padding: 12px;
+              text-align: center;
+              font-weight: bold;
+              font-size: 14px;
+              margin-top: 30px;
+              border-radius: 4px;
+            }
+            .page-break {
+              page-break-before: always;
+              mso-break-type: section-break;
+              clear: all;
+            }
           </style>
         </head>
         <body>
@@ -438,19 +550,10 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
     }
   };
 
-  // Helper row filling to match exactly 8 visual rows from the original design
+  // Helper row filling - optimized to only return actual items to avoid empty/filler rows
   const getPaddedRows = () => {
     if (!activeInvoice) return [];
-    
-    const rows = [...activeInvoice.items];
-    const totalDesiredRows = 8;
-    const paddingCount = totalDesiredRows - rows.length;
-    
-    const padded = [...rows];
-    for (let i = 0; i < paddingCount; i++) {
-      padded.push({ itemName: "", price: 0, quantity: 0, total: 0 }); // empty mock row
-    }
-    return padded;
+    return activeInvoice.items;
   };
 
   return (
@@ -458,8 +561,14 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
       
       {/* Styles for print mode */}
       <style>{`
-        .invoice-compact {
-          page-break-inside: avoid;
+        @page {
+          size: A4;
+          margin: 0.5cm;
+        }
+        
+        .invoice-print-card {
+          page-break-inside: avoid !important;
+          break-inside: avoid-page !important;
         }
         @media print {
           /* Force page & parent sizing reset for complete rendering without vh caps */
@@ -468,6 +577,8 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
             overflow: visible !important;
             min-height: 0 !important;
             background: white !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
           
           /* Hide non-printable app items entirely */
@@ -475,8 +586,7 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
             display: none !important;
           }
           
-          /* FIX: استبدال position:absolute بـ position:relative
-             عشان الفاتورة تتطبع صح من غير ما تطير خارج الصفحة */
+          /* Ensure printable area takes perfect A4 layout specifications */
           .print-area {
             position: relative !important;
             left: auto !important;
@@ -492,6 +602,17 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
             display: block !important;
           }
 
+          /* Force page-break prevention for compact cards */
+          .invoice-print-card {
+            page-break-inside: avoid !important;
+            break-inside: avoid-page !important;
+            min-height: auto !important;
+            height: auto !important;
+            border-bottom: 2px dashed #0a58ca !important;
+            margin-bottom: 2.5cm !important;
+            padding-bottom: 1.5cm !important;
+          }
+
           /* FIX: إخفاء فاتورة الـ single لما يكون bulk printing شغال
              بدل Tailwind print:hidden اللي مش بيشتغل دايماً */
           .hide-on-bulk-print {
@@ -502,17 +623,7 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
              بدل Tailwind print:block اللي مش بيشتغل دايماً */
           .bulk-print-container {
             display: block !important;
-          }
-
-          /* Force page break during bulk printing */
-          .print-page-break {
-            page-break-before: always !important;
-            break-before: page !important;
-            display: block !important;
-            height: 0 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            border: none !important;
+            width: 100% !important;
           }
           
           /* Color preservation adjustments */
@@ -607,155 +718,133 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
           
           {/* Printable Invoice paper canvas */}
           {/* FIX: استبدال print:hidden بـ hide-on-bulk-print CSS class */}
-          <div ref={printAreaRef} className={`print-area bg-white w-full max-w-4xl shadow-[0px_10px_40px_rgba(31,31,31,0.06)] border border-[#eeeeef] rounded-md overflow-hidden flex flex-col min-h-[1056px] relative select-none ${bulkPrintInvoices ? "hide-on-bulk-print" : ""}`}>
+          <div ref={printAreaRef} className={`print-area bg-white w-full max-w-4xl shadow-[0px_10px_40px_rgba(31,31,31,0.06)] border border-[#eeeeef] rounded-md overflow-hidden flex flex-col min-h-0 relative select-none invoice-print-card ${bulkPrintInvoices ? "print:hidden" : ""}`}>
             
             {/* Blue and Grey Visual Accent Top Bar */}
-            <div className="h-2 bg-[#0a58ca]" />
+            <div className="h-1.5 bg-[#0a58ca]" />
 
-            {/* Logo and Head Title section */}
-            <div className="p-8 pb-4 flex justify-between items-start" dir="ltr">
-              
-              {/* O&A Brand Typography Header Title instead of image */}
-              <div className="pt-4 px-2 select-none">
-                <h1 className="text-3xl font-black tracking-tight text-gray-900 leading-none">O&A Brand</h1>
-              </div>
-            
-              {/* Styled Invoice Header block with exact Arabic word "فاتورة" with blue banner background */}
-              <div className="bg-[#0a58ca] text-white pl-20 pr-12 py-5 rounded-l-full -mr-8 mt-4 text-right flex flex-col justify-center select-none shadow-[0px_4px_10px_rgba(10,88,202,0.15)]">
-                <h2 className="text-4xl font-display font-black tracking-widest uppercase leading-none text-white">فاتورة</h2>
-              </div>
+            {/* Header: Centered O&A Brand */}
+            <div className="pt-4 pb-1 text-center select-none" dir="ltr">
+              <h1 className="text-xl font-black tracking-tight text-gray-900 leading-none">O&A Brand</h1>
             </div>
 
             {/* Divider */}
-            <div className="px-8 my-1">
+            <div className="px-6 my-0.5">
               <div className="h-[1px] bg-gray-200" />
             </div>
 
-            {/* Customer coordinates (aligned Right, dir RTL) */}
-            <div className="p-8 py-5 flex justify-start" dir="rtl">
-              <div className="w-full max-w-md space-y-3 font-sans bg-gray-50/50 p-4 rounded-lg border border-gray-100">
-                
-                <div className="flex items-center border-b border-gray-200 pb-2">
-                  <span className="text-xs font-bold text-[#0a58ca] w-28 shrink-0 text-right">الاسم:</span>
-                  <span className="text-xs text-black font-bold flex-1 text-right">
-                    {activeInvoice.customerName}
-                  </span>
+            {/* Customer coordinates (Compact row/grid format) */}
+            <div className="px-6 py-2 flex justify-between gap-4" dir="rtl">
+              <div className="w-1/2 space-y-1 text-right">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-[#0a58ca] shrink-0">الاسم:</span>
+                  <span className="text-[11px] text-black font-black">{activeInvoice.customerName}</span>
                 </div>
-
-                <div className="flex items-center border-b border-gray-200 pb-2">
-                  <span className="text-xs font-bold text-[#0a58ca] w-28 shrink-0 text-right">العنوان:</span>
-                  <span className="text-xs text-black flex-1 text-right">
-                    {activeInvoice.address || "-" }
-                  </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-[#0a58ca] shrink-0">رقم التليفون:</span>
+                  <span className="text-[11px] text-black font-bold font-mono" dir="ltr">{activeInvoice.phone || "-"}</span>
                 </div>
-
-                <div className="flex items-center border-b border-gray-200 pb-2">
-                  <span className="text-xs font-bold text-[#0a58ca] w-28 shrink-0 text-right">رقم التليفون:</span>
-                  <span className="text-xs text-black font-semibold flex-1 text-right select-all font-mono" dir="ltr">
-                    {activeInvoice.phone || "-"}
-                  </span>
-                </div>
-
+              </div>
+              <div className="w-1/2 flex gap-1.5 text-right border-r border-gray-200 pr-3">
+                <span className="text-[11px] font-bold text-[#0a58ca] shrink-0">العنوان:</span>
+                <span className="text-[11px] text-gray-700 leading-relaxed">{activeInvoice.address || "-"}</span>
               </div>
             </div>
 
             {/* Line Items Table */}
-            <div className="px-8 py-4 flex-1">
+            <div className="px-6 py-1.5 flex-1">
               <table className="w-full border border-[#0a58ca]/40 text-right font-sans" dir="rtl">
                 <thead>
-                  <tr className="bg-[#0a58ca] text-white text-xs select-none">
-                    <th className="border-l border-[#0a58ca]/50 py-3 px-4 font-bold w-12 text-center">NO</th>
-                    <th className="border-l border-[#0a58ca]/50 py-3 px-4 font-bold">اسم الصنف</th>
-                    <th className="border-l border-[#0a58ca]/50 py-3 px-4 font-bold w-32 text-center">سعر القطعة</th>
-                    <th className="border-l border-[#0a58ca]/50 py-3 px-4 font-bold w-24 text-center">العدد</th>
-                    <th className="py-3 px-4 font-bold w-32 text-center">المجموع</th>
+                  <tr className="bg-[#0a58ca] text-white text-[11px] select-none">
+                    <th className="border-l border-[#0a58ca]/50 py-1.5 px-3 font-bold w-12 text-center">NO</th>
+                    <th className="border-l border-[#0a58ca]/50 py-1.5 px-3 font-bold">اسم الصنف</th>
+                    <th className="border-l border-[#0a58ca]/50 py-1.5 px-3 font-bold w-28 text-center">سعر القطعة</th>
+                    <th className="border-l border-[#0a58ca]/50 py-1.5 px-3 font-bold w-20 text-center">العدد</th>
+                    <th className="py-1.5 px-3 font-bold w-28 text-center">المجموع</th>
                   </tr>
                 </thead>
-                <tbody className="text-xs text-[#1a1c1d]">
+                <tbody className="text-[11px] text-[#1a1c1d]">
                   {getPaddedRows().map((row, idx) => {
-                    const isFiller = row.itemName === "";
                     return (
                       <tr 
                         key={idx}
-                        className={`h-11 border-b border-gray-200 ${
-                          isFiller ? "bg-white" : "hover:bg-gray-50/50"
-                        }`}
+                        className="h-7 border-b border-gray-200 hover:bg-gray-50/50"
                       >
                         {/* NO Index Column */}
-                        <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono">
+                        <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono py-0.5">
                           {idx + 1}
                         </td>
                         
                         {/* Item descriptive */}
-                        <td className="border-l border-gray-200 px-4 font-medium max-w-[280px] truncate text-[#1a1c1d]">
+                        <td className="border-l border-gray-200 px-3 font-medium max-w-[280px] truncate text-[#1a1c1d] py-0.5">
                           {row.itemName}
                         </td>
 
                         {/* Price Unit */}
-                        <td className="border-l border-gray-200 px-4 text-center font-semibold font-mono text-gray-600">
-                          {!isFiller ? row.price.toFixed(2) : ""}
+                        <td className="border-l border-gray-200 px-3 text-center font-semibold font-mono text-gray-600 py-0.5">
+                          {row.price.toFixed(2)}
                         </td>
 
                         {/* Qty Count */}
-                        <td className="border-l border-gray-200 px-4 text-center font-bold font-mono">
-                          {!isFiller && row.quantity > 0 ? row.quantity : ""}
+                        <td className="border-l border-gray-200 px-3 text-center font-bold font-mono py-0.5">
+                          {row.quantity}
                         </td>
 
                         {/* Line aggregate cost */}
-                        <td className="px-4 text-center font-bold font-mono text-[#0a58ca]">
-                          {!isFiller ? row.total.toFixed(2) : ""}
+                        <td className="px-3 text-center font-bold font-mono text-[#0a58ca] py-0.5">
+                          {row.total.toFixed(2)}
                         </td>
                       </tr>
                     );
                   })}
 
                   {/* Summary / Tax or aggregate totals row */}
-                  <tr className="h-11 bg-gray-50/70 border-t border-gray-200 select-none">
-                    <td className="border-l border-gray-200 text-center font-bold text-gray-400">#</td>
-                    <td className="border-l border-gray-200 px-4 font-bold text-gray-700 text-right">
+                  <tr className="h-7 bg-gray-50/70 border-t border-gray-200 select-none">
+                    <td className="border-l border-gray-200 text-center font-bold text-gray-400 py-0.5">#</td>
+                    <td className="border-l border-gray-200 px-3 font-bold text-gray-700 text-right py-0.5">
                       مجموع الأصناف
                     </td>
-                    <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono">
+                    <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono py-0.5">
                       
                     </td>
-                    <td className="border-l border-gray-200 text-center font-black font-mono text-black">
+                    <td className="border-l border-gray-200 text-center font-black font-mono text-black py-0.5">
                       {activeInvoice.items.reduce((a,c) => a+Number(c.quantity), 0)}
                     </td>
-                    <td className="px-4 text-center font-bold font-mono text-[#0a58ca]">
+                    <td className="px-3 text-center font-bold font-mono text-[#0a58ca] py-0.5">
                       {itemsSubtotal.toFixed(2)}
                     </td>
                   </tr>
 
                   {shippingFee > 0 && (
-                    <tr className="h-11 bg-gray-50/70 border-t border-gray-200 select-none">
-                      <td className="border-l border-gray-200 text-center font-bold text-gray-400">#</td>
-                      <td className="border-l border-gray-200 px-4 font-bold text-gray-700 text-right">
+                    <tr className="h-7 bg-gray-50/70 border-t border-gray-200 select-none">
+                      <td className="border-l border-gray-200 text-center font-bold text-gray-400 py-0.5">#</td>
+                      <td className="border-l border-gray-200 px-3 font-bold text-gray-700 text-right py-0.5">
                         قيمة التوصيل
                       </td>
-                      <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono">
+                      <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono py-0.5">
                         
                       </td>
-                      <td className="border-l border-gray-200 text-center font-medium font-mono text-gray-400">
-                        -
+                      <td className="border-l border-gray-200 text-center font-medium font-mono text-gray-400 py-0.5">
+                        
                       </td>
-                      <td className="px-4 text-center font-bold font-mono text-[#0a58ca]">
+                      <td className="px-3 text-center font-bold font-mono text-[#0a58ca] py-0.5">
                         {shippingFee.toFixed(2)}
                       </td>
                     </tr>
                   )}
 
-                  <tr className="h-12 bg-gray-100 border-t-2 border-[#0a58ca]/40 select-none text-black">
-                    <td className="border-l border-gray-200 text-center font-black text-gray-600">#</td>
-                    <td className="border-l border-gray-200 px-4 font-black text-[#0a58ca] text-right">
+                  <tr className="h-8 bg-gray-100 border-t border-[#0a58ca]/40 select-none text-black">
+                    <td className="border-l border-gray-200 text-center font-black text-gray-600 py-1">#</td>
+                    <td className="border-l border-gray-200 px-3 font-black text-[#0a58ca] text-right py-1">
                       الاجمالي المطلوب دفعه
                     </td>
-                    <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono">
+                    <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono py-1">
                       
                     </td>
-                    <td className="border-l border-gray-200 text-center font-black font-mono text-black">
+                    <td className="border-l border-gray-200 text-center font-black font-mono text-black py-1">
                       
                     </td>
-                    <td className="px-4 text-center font-black font-mono text-lg text-[#0a58ca]">
+                    <td className="px-3 text-center font-black font-mono text-sm text-[#0a58ca] py-1">
                       {activeInvoice.totalAmount.toFixed(2)} EGP
                     </td>
                   </tr>
@@ -764,8 +853,8 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
             </div>
 
             {/* Printable Footing contact block */}
-            <div className="mt-8 bg-[#0a58ca] text-[#ffffff] py-4 px-8 text-center select-none">
-              <p className="text-lg md:text-xl font-bold tracking-wide text-center" dir="rtl">
+            <div className="mt-2 bg-[#0a58ca] text-[#ffffff] py-1 px-4 text-center select-none">
+              <p className="text-xs font-bold tracking-wide text-center" dir="rtl">
                 للتواصل +201016296205
               </p>
             </div>
@@ -1087,44 +1176,26 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
         </div>
       )}
 
-      {/* FIX: استبدال hidden print:block بـ bulk-print-container CSS class
-          عشان نضمن إن الـ bulk invoices بتظهر صح وقت الطباعة */}
+      {/* Dynamic Bulk Printable Pages Container */}
       {bulkPrintInvoices && (
-        <div className="bulk-print-container w-full">
-          {bulkPrintInvoices.map((inv, index) => {
+        <div className="bulk-print-container w-full font-sans">
+          {bulkPrintInvoices.map((rawInv, index) => {
+            const inv = sanitizeInvoice(rawInv);
+            if (!inv) return null;
             const itemsSubtotal = inv.items.reduce((acc, curr) => acc + curr.total, 0);
             const shippingFee = inv.shippingCost || 0;
-            
-            // Helper row filling to match exactly 8 visual rows from the original design
-            const paddedRows = [...inv.items];
-            const paddingCount = 8 - paddedRows.length;
-            for (let i = 0; i < paddingCount; i++) {
-              paddedRows.push({ itemName: "", price: 0, quantity: 0, total: 0 });
-            }
 
             return (
               <div 
                 key={inv.id} 
-                className={`bg-white w-full max-w-4xl mx-auto flex flex-col relative p-8 select-none ${
-                  index > 0 ? "print-page-break" : ""
-                }`}
-                style={{ pageBreakInside: "avoid" }}
+                className="bg-white w-full max-w-4xl mx-auto flex flex-col relative p-8 select-none invoice-print-card"
               >
                 {/* Blue Visual Accent Top Bar */}
-                <div className="h-2 bg-[#0a58ca] -mx-8 -mt-8 mb-8" />
+                <div className="h-1.5 bg-[#0a58ca] -mx-8 -mt-8 mb-4" />
 
-                {/* Logo and Head Title section */}
-                <div className="p-8 pb-4 flex justify-between items-start" dir="ltr">
-                  
-                  {/* O&A Brand Typography Header Title instead of image */}
-                  <div className="pt-4 px-2 select-none">
-                    <h1 className="text-3xl font-black tracking-tight text-gray-900 leading-none">O&A Brand</h1>
-                  </div>
-                
-                  {/* Styled Invoice Header block with exact Arabic word "فاتورة" with blue banner background */}
-                  <div className="bg-[#0a58ca] text-white pl-20 pr-12 py-5 rounded-l-full -mr-8 mt-4 text-right flex flex-col justify-center select-none shadow-[0px_4px_10px_rgba(10,88,202,0.15)]">
-                    <h2 className="text-4xl font-display font-black tracking-widest uppercase leading-none text-white">فاتورة</h2>
-                  </div>
+                {/* Header: Centered O&A Brand */}
+                <div className="pt-2 pb-1 text-center select-none" dir="ltr">
+                  <h1 className="text-xl font-black tracking-tight text-gray-900 leading-none">O&A Brand</h1>
                 </div>
 
                 {/* Divider */}
@@ -1132,117 +1203,99 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
                   <div className="h-[1px] bg-gray-200" />
                 </div>
 
-                {/* Customer coordinates */}
-                <div className="py-5 flex justify-start" dir="rtl">
-                  <div className="w-full max-w-md space-y-3 font-sans bg-gray-50/50 p-4 rounded-lg border border-gray-100">
-                    <div className="flex items-center border-b border-gray-200 pb-2">
-                      <span className="text-xs font-bold text-[#0a58ca] w-28 shrink-0 text-right">رقم الفاتورة:</span>
-                      <span className="text-xs text-black font-bold flex-1 text-right font-mono">
-                        {inv.id}
-                      </span>
+                {/* Customer coordinates (Compact row/grid format) */}
+                <div className="py-2 flex justify-between gap-4" dir="rtl">
+                  <div className="w-1/2 space-y-1 text-right">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] font-bold text-[#0a58ca] shrink-0">الاسم:</span>
+                      <span className="text-[11px] text-black font-black">{inv.customerName}</span>
                     </div>
-
-                    <div className="flex items-center border-b border-gray-200 pb-2">
-                      <span className="text-xs font-bold text-[#0a58ca] w-28 shrink-0 text-right">الاسم:</span>
-                      <span className="text-xs text-black font-bold flex-1 text-right">
-                        {inv.customerName}
-                      </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] font-bold text-[#0a58ca] shrink-0">رقم التليفون:</span>
+                      <span className="text-[11px] text-black font-bold font-mono" dir="ltr">{inv.phone || "-"}</span>
                     </div>
-
-                    <div className="flex items-center border-b border-gray-200 pb-2">
-                      <span className="text-xs font-bold text-[#0a58ca] w-28 shrink-0 text-right">العنوان:</span>
-                      <span className="text-xs text-black flex-1 text-right">
-                        {inv.address || "-"}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center border-b border-gray-200 pb-2">
-                      <span className="text-xs font-bold text-[#0a58ca] w-28 shrink-0 text-right">رقم التليفون:</span>
-                      <span className="text-xs text-black font-semibold flex-1 text-right font-mono" dir="ltr">
-                        {inv.phone || "-"}
-                      </span>
-                    </div>
+                  </div>
+                  <div className="w-1/2 flex gap-1.5 text-right border-r border-gray-200 pr-3">
+                    <span className="text-[11px] font-bold text-[#0a58ca] shrink-0">العنوان:</span>
+                    <span className="text-[11px] text-gray-700 leading-relaxed">{inv.address || "-"}</span>
                   </div>
                 </div>
 
                 {/* Line Items Table */}
-                <div className="py-4 flex-1">
+                <div className="py-1.5 flex-1">
                   <table className="w-full border border-[#0a58ca]/40 text-right font-sans" dir="rtl">
                     <thead>
-                      <tr className="bg-[#0a58ca] text-white text-xs select-none">
-                        <th className="border-l border-[#0a58ca]/50 py-3 px-4 font-bold w-12 text-center">NO</th>
-                        <th className="border-l border-[#0a58ca]/50 py-3 px-4 font-bold">اسم الصنف</th>
-                        <th className="border-l border-[#0a58ca]/50 py-3 px-4 font-bold w-32 text-center">سعر القطعة</th>
-                        <th className="border-l border-[#0a58ca]/50 py-3 px-4 font-bold w-24 text-center">العدد</th>
-                        <th className="py-3 px-4 font-bold w-32 text-center">المجموع</th>
+                      <tr className="bg-[#0a58ca] text-white text-[11px] select-none">
+                        <th className="border-l border-[#0a58ca]/50 py-1.5 px-3 font-bold w-12 text-center">NO</th>
+                        <th className="border-l border-[#0a58ca]/50 py-1.5 px-3 font-bold">اسم الصنف</th>
+                        <th className="border-l border-[#0a58ca]/50 py-1.5 px-3 font-bold w-28 text-center">سعر القطعة</th>
+                        <th className="border-l border-[#0a58ca]/50 py-1.5 px-3 font-bold w-20 text-center">العدد</th>
+                        <th className="py-1.5 px-3 font-bold w-28 text-center">المجموع</th>
                       </tr>
                     </thead>
-                    <tbody className="text-xs text-[#1a1c1d]">
-                      {paddedRows.map((row, idx) => {
-                        const isFiller = row.itemName === "";
+                    <tbody className="text-[11px] text-[#1a1c1d]">
+                      {inv.items.map((row, idx) => {
                         return (
                           <tr 
                             key={idx}
-                            className={`h-11 border-b border-gray-200 ${
-                              isFiller ? "bg-white" : "hover:bg-gray-50/50"
-                            }`}
+                            className="h-7 border-b border-gray-200 hover:bg-gray-50/50"
                           >
-                            <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono">
+                            <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono py-0.5">
                               {idx + 1}
                             </td>
-                            <td className="border-l border-gray-200 px-4 font-medium max-w-[280px] truncate text-[#1a1c1d]">
+                            <td className="border-l border-gray-200 px-3 font-medium max-w-[280px] truncate text-[#1a1c1d] py-0.5">
                               {row.itemName}
                             </td>
-                            <td className="border-l border-gray-200 px-4 text-center font-semibold font-mono text-gray-600">
-                              {!isFiller ? row.price.toFixed(2) : ""}
+                            <td className="border-l border-gray-200 px-3 text-center font-semibold font-mono text-gray-600 py-0.5">
+                              {row.price.toFixed(2)}
                             </td>
-                            <td className="border-l border-gray-200 px-4 text-center font-bold font-mono">
-                              {!isFiller && row.quantity > 0 ? row.quantity : ""}
+                            <td className="border-l border-gray-200 px-3 text-center font-bold font-mono py-0.5">
+                              {row.quantity}
                             </td>
-                            <td className="px-4 text-center font-bold font-mono text-[#0a58ca]">
-                              {!isFiller ? row.total.toFixed(2) : ""}
+                            <td className="px-3 text-center font-bold font-mono text-[#0a58ca] py-0.5">
+                              {row.total.toFixed(2)}
                             </td>
                           </tr>
                         );
                       })}
 
                       {/* Summary Row */}
-                      <tr className="h-11 bg-gray-50/70 border-t border-gray-200 select-none">
-                        <td className="border-l border-gray-200 text-center font-bold text-gray-400">#</td>
-                        <td className="border-l border-gray-200 px-4 font-bold text-gray-700 text-right">
+                      <tr className="h-7 bg-gray-50/70 border-t border-gray-200 select-none">
+                        <td className="border-l border-gray-200 text-center font-bold text-gray-400 py-0.5">#</td>
+                        <td className="border-l border-gray-200 px-3 font-bold text-gray-700 text-right py-0.5">
                           مجموع الأصناف
                         </td>
-                        <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono" />
-                        <td className="border-l border-gray-200 text-center font-black font-mono text-black">
+                        <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono py-0.5" />
+                        <td className="border-l border-gray-200 text-center font-black font-mono text-black py-0.5">
                           {inv.items.reduce((a,c) => a+Number(c.quantity), 0)}
                         </td>
-                        <td className="px-4 text-center font-bold font-mono text-[#0a58ca]">
+                        <td className="px-3 text-center font-bold font-mono text-[#0a58ca] py-0.5">
                           {itemsSubtotal.toFixed(2)}
                         </td>
                       </tr>
 
                       {shippingFee > 0 && (
-                        <tr className="h-11 bg-gray-50/70 border-t border-gray-200 select-none">
-                          <td className="border-l border-gray-200 text-center font-bold text-gray-400">#</td>
-                          <td className="border-l border-gray-200 px-4 font-bold text-gray-700 text-right">
+                        <tr className="h-7 bg-gray-50/70 border-t border-gray-200 select-none">
+                          <td className="border-l border-gray-200 text-center font-bold text-gray-400 py-0.5">#</td>
+                          <td className="border-l border-gray-200 px-3 font-bold text-gray-700 text-right py-0.5">
                             قيمة التوصيل
                           </td>
-                          <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono" />
-                          <td className="border-l border-gray-200 text-center font-medium font-mono text-gray-400">-</td>
-                          <td className="px-4 text-center font-bold font-mono text-[#0a58ca]">
+                          <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono py-0.5" />
+                          <td className="border-l border-gray-200 text-center font-medium font-mono text-gray-400 py-0.5"></td>
+                          <td className="px-3 text-center font-bold font-mono text-[#0a58ca] py-0.5">
                             {shippingFee.toFixed(2)}
                           </td>
                         </tr>
                       )}
 
-                      <tr className="h-12 bg-gray-100 border-t-2 border-[#0a58ca]/40 select-none text-black">
-                        <td className="border-l border-gray-200 text-center font-black text-gray-600">#</td>
-                        <td className="border-l border-gray-200 px-4 font-black text-[#0a58ca] text-right">
+                      <tr className="h-8 bg-gray-100 border-t border-[#0a58ca]/40 select-none text-black">
+                        <td className="border-l border-gray-200 text-center font-black text-gray-600 py-1">#</td>
+                        <td className="border-l border-gray-200 px-3 font-black text-[#0a58ca] text-right py-1">
                           الاجمالي المطلوب دفعه
                         </td>
-                        <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono" />
-                        <td className="border-l border-gray-200 text-center font-black font-mono text-black" />
-                        <td className="px-4 text-center font-black font-mono text-lg text-[#0a58ca]">
+                        <td className="border-l border-gray-200 text-center font-bold text-gray-500 font-mono py-1" />
+                        <td className="border-l border-gray-200 text-center font-black font-mono text-black py-1" />
+                        <td className="px-3 text-center font-black font-mono text-sm text-[#0a58ca] py-1">
                           {inv.totalAmount.toFixed(2)} EGP
                         </td>
                       </tr>
@@ -1251,8 +1304,8 @@ export default function InvoicePreviewView({ invoices, onBackToDataEntry }: Invo
                 </div>
 
                 {/* Printable Footing contact block */}
-                <div className="mt-8 bg-[#0a58ca] text-[#ffffff] py-4 px-8 text-center select-none">
-                  <p className="text-lg md:text-xl font-bold tracking-wide text-center" dir="rtl">
+                <div className="mt-2 bg-[#0a58ca] text-[#ffffff] py-1 px-4 text-center select-none -mx-8 -mb-8">
+                  <p className="text-xs font-bold tracking-wide text-center" dir="rtl">
                     للتواصل +201016296205
                   </p>
                 </div>
